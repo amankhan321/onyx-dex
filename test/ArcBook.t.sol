@@ -35,7 +35,7 @@ contract ArcBookTest is Test {
         eurc = new MockERC20("Euro Coin", "EURC", 6);
 
         rp = new GuardedRateProvider(oracle, RATE);
-        pool = new StableSwap(address(usdc), address(eurc), address(rp), 20_000, 4, "ArcBook LP", "ABLP");
+        pool = new StableSwap(address(usdc), address(eurc), address(rp), 6, 6, 20_000, 4, "ArcBook LP", "ABLP");
         book = new OrderBook(address(pool), 2);
         router = new Router(address(pool), address(book));
         quoter = new Quoter(address(pool), address(book));

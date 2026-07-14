@@ -3,7 +3,6 @@ pragma solidity 0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -62,6 +61,8 @@ contract StableSwap is ERC20, ReentrancyGuard {
         address coin0_,
         address coin1_,
         address rateProvider_,
+        uint8 decimals0_,
+        uint8 decimals1_,
         uint256 amp_,
         uint256 feeBps_,
         string memory name_,
@@ -73,6 +74,7 @@ contract StableSwap is ERC20, ReentrancyGuard {
         if (amp_ < 100 || amp_ > 500_000) revert BadParams();
         // Hard-capped at 1% so a fat-fingered deploy can't create a fee trap.
         if (feeBps_ > 100) revert BadParams();
+        if (decimals0_ > 18 || decimals1_ > 18) revert TooManyDecimals();
 
         coin0 = IERC20(coin0_);
         coin1 = IERC20(coin1_);
@@ -80,11 +82,16 @@ contract StableSwap is ERC20, ReentrancyGuard {
         amp = amp_;
         feeBps = feeBps_;
 
-        uint8 d0 = IERC20Metadata(coin0_).decimals();
-        uint8 d1 = IERC20Metadata(coin1_).decimals();
-        if (d0 > 18 || d1 > 18) revert TooManyDecimals();
-        mul0 = 10 ** (18 - d0);
-        mul1 = 10 ** (18 - d1);
+        // Decimals are passed in, NOT read from the token.
+        //
+        // On Arc, USDC is a system precompile at 0x3600...0000 with no EVM bytecode.
+        // Solidity emits an extcodesize check before every typed external call and
+        // reverts when the target has no code, so `IERC20Metadata(usdc).decimals()`
+        // reverts with "call to non-contract address" — on-chain and in simulation.
+        // OZ's SafeERC20 sidesteps this (it uses raw assembly `call` with no codesize
+        // precheck), which is why transfers still work. Reading metadata does not.
+        mul0 = 10 ** (18 - decimals0_);
+        mul1 = 10 ** (18 - decimals1_);
     }
 
     // ---------------------------------------------------------------------
