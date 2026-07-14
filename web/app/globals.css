@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html, body {
+  background: #08090B;
+  color: #E7E9EE;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A single, very quiet light source. Nothing else in the page glows. */
+.aurora::before {
+  content: "";
+  position: fixed;
+  inset: -30% 0 auto 0;
+  height: 60vh;
+  background: radial-gradient(60% 50% at 50% 0%, rgba(124,140,255,0.10), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hairline { border: 1px solid #1C1F26; }
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #23262E; border-radius: 3px; }
