@@ -17,11 +17,11 @@ import {GuardedRateProvider} from "../src/RateProvider.sol";
 ///     --private-key $PRIVATE_KEY \
 ///     --broadcast -vvv
 ///
-/// @dev This script deliberately makes NO calls into the token contracts.
-///      Arc's USDC lives at a system precompile (0x3600...0000) with no EVM bytecode.
-///      Any typed Solidity call into it — including a harmless `decimals()` — trips the
-///      compiler's extcodesize check and reverts with "call to non-contract address".
-///      Decimals are therefore passed in as constants, not read on-chain.
+/// @dev This script makes no calls into the token contracts. Decimals are constants,
+///      not read on-chain, so the script simulates cleanly even without an RPC. Arc's
+///      USDC is an ordinary upgradeable ERC-20 proxy — reading its metadata would work
+///      fine — but a constructor with zero external dependencies is one less thing to
+///      debug at deploy time.
 contract Deploy is Script {
     // Arc Testnet canonical tokens.
     address constant ARC_USDC = 0x3600000000000000000000000000000000000000;

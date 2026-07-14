@@ -144,14 +144,14 @@ contract Router is ReentrancyGuard {
     ) external returns (uint256) {
         IERC20 tokenIn = zeroForOne ? base : quote;
 
-        // Low-level, NOT `try IERC20Permit(...).permit()`.
+        // Low-level call, deliberately, and the result is deliberately ignored.
         //
-        // Two reasons. First, Arc's USDC is a codeless system precompile, and Solidity's
-        // extcodesize check fires *before* the call — a `try` block does not catch that,
-        // it reverts the whole transaction. Second, permit front-running is a known
-        // EIP-2612 grief: an attacker can replay your signature to burn the nonce and
-        // brick the swap. A raw call that ignores the result handles both — if the
-        // allowance is already in place, we simply proceed.
+        // Permit front-running is a known EIP-2612 grief: anyone watching the mempool can
+        // replay your signature ahead of you, burning the nonce, so that your own permit
+        // reverts and takes the swap down with it. Firing the permit and ignoring whether
+        // it landed means the swap proceeds either way — the allowance is in place
+        // regardless of who submitted it. If it genuinely failed, the transferFrom below
+        // reverts on its own.
         (bool ok,) = address(tokenIn).call(
             abi.encodeWithSelector(IERC20Permit.permit.selector, msg.sender, address(this), amountIn, deadline, v, r, s)
         );

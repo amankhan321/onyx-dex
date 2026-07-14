@@ -82,14 +82,13 @@ contract StableSwap is ERC20, ReentrancyGuard {
         amp = amp_;
         feeBps = feeBps_;
 
-        // Decimals are passed in, NOT read from the token.
+        // Decimals are passed in rather than read from the token.
         //
-        // On Arc, USDC is a system precompile at 0x3600...0000 with no EVM bytecode.
-        // Solidity emits an extcodesize check before every typed external call and
-        // reverts when the target has no code, so `IERC20Metadata(usdc).decimals()`
-        // reverts with "call to non-contract address" — on-chain and in simulation.
-        // OZ's SafeERC20 sidesteps this (it uses raw assembly `call` with no codesize
-        // precheck), which is why transfers still work. Reading metadata does not.
+        // Arc's USDC at 0x3600...0000 is an ordinary upgradeable ERC-20 proxy, so a
+        // metadata read would work on-chain. We take them as parameters anyway, so the
+        // constructor makes no external calls whatsoever. That keeps deployment
+        // reproducible in a bare local EVM with no fork and no RPC, and removes a
+        // dependency on a token layer we do not control.
         mul0 = 10 ** (18 - decimals0_);
         mul1 = 10 ** (18 - decimals1_);
     }
