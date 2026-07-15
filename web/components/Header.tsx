@@ -56,6 +56,9 @@ export function Header() {
               </span>
             </span>
           )}
+          {/* Multi-wallet extensions can clash over window.ethereum and throw
+              before our code runs. Guard the connect click so the failure is a
+              readable message, not a silent console error. */}
           {address ? (
             <button
               onClick={() => disconnect()}
@@ -65,8 +68,18 @@ export function Header() {
             </button>
           ) : (
             <button
-              onClick={() => connect({ connector: connectors[0] })}
-              className="btn btn-mint bg-fg px-3.5 py-1.5 text-xs font-medium text-base"
+              onClick={() => {
+                try {
+                  if (!connectors.length || typeof window === "undefined" || !("ethereum" in window)) {
+                    alert("No wallet detected. Install MetaMask (or another injected wallet) and reload.");
+                    return;
+                  }
+                  connect({ connector: connectors[0] });
+                } catch {
+                  alert("Your wallet extensions are conflicting over window.ethereum. Disable all but one and reload.");
+                }
+              }}
+              className="btn bg-indigo px-3.5 py-1.5 text-xs font-medium text-white hover:bg-indigo/90"
             >
               Connect
             </button>

@@ -10,7 +10,7 @@ export default {
         sink: "#07080B",
         fg: "#EDEEF2",
         muted: "#8A8F98",
-        faint: "#4D525C",
+        faint: "#6A7080",
         indigo: "#5E6AD2",
         mint: "#2ED3A7",
         rose: "#FF5C6C",

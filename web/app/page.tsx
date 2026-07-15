@@ -45,7 +45,7 @@ export default function Page() {
                       <motion.span
                         layoutId="tab-pill"
                         transition={{ type: "spring", stiffness: 380, damping: 32 }}
-                        className="absolute inset-0 rounded-[9px] bg-white/[0.08]"
+                        className="absolute inset-0 rounded-[9px] bg-indigo/[0.22]"
                       />
                     )}
                     <span
@@ -158,7 +158,7 @@ export default function Page() {
         {/* -------- the book, full width -------- */}
         <Stagger gap={0.06} className="mt-6">
           <Rise>
-            <BookLadder />
+            <BookLadder onMake={() => setTab("Make")} />
           </Rise>
         </Stagger>
       </main>

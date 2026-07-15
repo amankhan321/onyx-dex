@@ -14,7 +14,7 @@
 
   --fg: #edeef2;
   --muted: #8a8f98;
-  --faint: #4d525c;
+  --faint: #6a7080;
 
   --indigo: #5e6ad2;
   --mint: #2ed3a7;
@@ -67,7 +67,7 @@ body::before {
 .glass {
   position: relative;
   border-radius: var(--r-panel);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.11);
   background: linear-gradient(
     135deg,
     rgba(255, 255, 255, 0.05),
@@ -87,6 +87,10 @@ body::before {
 .inner:hover {
   background: rgba(255, 255, 255, 0.045);
   border-color: rgba(255, 255, 255, 0.14);
+}
+.inner:focus-within {
+  border-color: rgba(94, 106, 210, 0.55);
+  box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.15);
 }
 
 /* ---------- lift ---------- */

@@ -8,7 +8,7 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 /** Siblings rise in sequence. 70ms apart — enough to read as a cascade, not a queue. */
 export function Stagger({
   children,
-  gap = 0.07,
+  gap = 0.04,
   className,
 }: {
   children: ReactNode;
@@ -31,7 +31,7 @@ export function Stagger({
 export function Rise({
   children,
   className,
-  y = 16,
+  y = 10,
 }: {
   children: ReactNode;
   className?: string;
@@ -46,7 +46,7 @@ export function Rise({
         show: {
           opacity: 1,
           y: 0,
-          transition: { duration: 0.75, ease: EASE },
+          transition: { duration: 0.35, ease: EASE },
         },
       }}
     >

@@ -6,7 +6,7 @@ import { useBook, usePool, type Level } from "@/lib/useBook";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
-export function BookLadder() {
+export function BookLadder({ onMake }: { onMake?: () => void } = {}) {
   const { data: book } = useBook();
   const { data: pool } = usePool();
 
@@ -16,7 +16,7 @@ export function BookLadder() {
   const spread = bids[0] && asks[0] ? asks[0].price - bids[0].price : null;
 
   return (
-    <div className="glass lift h-full p-6">
+    <div className="glass lift h-full overflow-x-auto p-6">
       <div className="flex items-baseline justify-between">
         <h2 className="text-sm font-medium text-fg">Order book</h2>
         <span className="font-mono text-[11px] text-faint">USDC / EURC</span>
@@ -54,7 +54,19 @@ export function BookLadder() {
             <Row key={`b${l.tick}`} level={l} side="bid" max={max} />
           ))}
         </AnimatePresence>
-        {bids.length === 0 && <Empty>no bids resting</Empty>}
+        {bids.length === 0 && (
+          <div className="px-2 py-4 text-center">
+            <div className="font-mono text-[11px] text-faint">no bids resting</div>
+            {onMake && (
+              <button
+                onClick={onMake}
+                className="btn mt-3 border border-indigo/40 px-4 py-1.5 text-xs text-indigo hover:bg-indigo/10"
+              >
+                Be the first maker — post an order
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
