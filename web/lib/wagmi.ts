@@ -1,29 +1,32 @@
-import { createConfig, http } from "wagmi";
+import { createConfig, fallback, http } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { arcTestnet } from "./contracts";
 
+const DIRECT = "https://rpc.testnet.arc.network";
+
 /**
- * Reads go straight to the Arc RPC — the config that works. The extra options
- * here are about RESILIENCE, which is what "HTTP request failed" was: the
- * endpoint occasionally times out or throttles, and with no retry a single
- * blip killed the whole quote. Now each call retries a few times with backoff
- * and a generous timeout before it's allowed to fail.
- *
- * Writes never use this transport — they go through the connected wallet.
+ * THE EVIDENCE, so this doesn't flip-flop again: every server-side caller
+ * (keeper, cast from two different machines) reaches the Arc RPC fine; every
+ * BROWSER call fails ("RPC Request failed" on eth_call). The RPC blocks
+ * browser-origin requests. Reads therefore go through our same-origin
+ * /api/rpc proxy — served by this very app on Vercel AND on the droplet —
+ * with the direct RPC as a fallback in case some environment allows it.
+ * Batching stays OFF everywhere: the RPC also drops batched calls.
+ * Writes go through the connected wallet and never touch this transport.
  */
+const opts = { retryCount: 3, retryDelay: 400, timeout: 15_000, batch: false } as const;
+
+const transport =
+  typeof window === "undefined"
+    ? http(DIRECT, opts)
+    : fallback([
+        http(`${window.location.origin}/api/rpc`, opts),
+        http(DIRECT, opts),
+      ]);
+
 export const wagmiConfig = createConfig({
   chains: [arcTestnet],
   connectors: [injected()],
-  transports: {
-    [arcTestnet.id]: http("https://rpc.testnet.arc.network", {
-      retryCount: 3,
-      retryDelay: 400,
-      timeout: 15_000,
-      // NOT batched: this RPC intermittently drops batched eth_calls (surfaced
-      // as 'HTTP request failed' / 'missing revert data'). One call per request
-      // is chattier but reliable.
-      batch: false,
-    }),
-  },
+  transports: { [arcTestnet.id]: transport },
   ssr: true,
 });
