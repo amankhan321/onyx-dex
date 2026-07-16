@@ -21,11 +21,11 @@ export function Ambient() {
         style={{
           top: "-22%",
           left: "-8%",
-          width: 1100,
-          height: 1100,
+          width: 700,
+          height: 700,
           background:
             "radial-gradient(circle, rgba(94,106,210,0.18) 0%, rgba(94,106,210,0.05) 45%, transparent 70%)",
-          filter: "blur(140px)",
+          filter: "blur(70px)",
           animation: "float-a 18s ease-in-out infinite",
         }}
       />
@@ -34,11 +34,11 @@ export function Ambient() {
         style={{
           top: "-10%",
           right: "-12%",
-          width: 950,
-          height: 950,
+          width: 600,
+          height: 600,
           background:
             "radial-gradient(circle, rgba(46,211,167,0.14) 0%, rgba(46,211,167,0.04) 45%, transparent 70%)",
-          filter: "blur(130px)",
+          filter: "blur(60px)",
           animation: "float-b 15s ease-in-out infinite",
         }}
       />

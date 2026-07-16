@@ -12,9 +12,9 @@
      lighter so they read as lifted rather than same-grey-on-grey. The flat
      look came from base and cards being nearly identical — this separates them. */
   /* True deep near-black. Everything above pops against it. */
-  --base: #0d1220;
-  --raise: #1a2130;
-  --sink: #0a0e18;
+  --base: #101014;
+  --raise: #1a1a21;
+  --sink: #0b0b0e;
 
   --fg: #f6f6fa;
   --muted: #a2a8b4;
@@ -63,12 +63,12 @@ body::before {
   z-index: -3;
   background:
     /* main spotlight from top-centre: teal core bleeding into violet */
-    radial-gradient(70% 55% at 50% -8%, rgba(46, 211, 167, 0.16) 0%, transparent 45%),
-    radial-gradient(90% 70% at 50% -12%, rgba(94, 106, 210, 0.20) 0%, transparent 55%),
+    radial-gradient(70% 50% at 50% -10%, rgba(94, 106, 210, 0.14) 0%, transparent 45%),
+    
     /* violet depth glow, opposite corner */
-    radial-gradient(50% 45% at 88% 8%, rgba(124, 108, 255, 0.14) 0%, transparent 60%),
+    radial-gradient(45% 40% at 88% 5%, rgba(46, 211, 167, 0.07) 0%, transparent 60%),
     /* faint teal floor glow so the bottom isn't dead */
-    radial-gradient(60% 40% at 15% 100%, rgba(46, 211, 167, 0.06) 0%, transparent 55%),
+    
     var(--base);
   pointer-events: none;
 }
@@ -83,18 +83,18 @@ body::before {
      the bottom, so the card reads as catching the spotlight. */
   /* SOLID raised panel — the transparent glass read dim against near-black.
      Bright slate, lit top edge, real elevation (competitor-grade brightness). */
-  background: linear-gradient(180deg, #1e2637 0%, #171d2b 100%);
+  background: linear-gradient(180deg, #1d1d25 0%, #17171d 100%);
   box-shadow: var(--glass-shadow);
 }
 
 .inner {
   border-radius: var(--r-inner);
   border: 1px solid rgba(255,255,255,0.09);
-  background: #131927;
+  background: #141419;
   transition: all 0.4s var(--ease);
 }
 .inner:hover {
-  background: #172033;
+  background: #191920;
   border-color: rgba(255, 255, 255, 0.14);
 }
 .inner:focus-within {

@@ -63,7 +63,7 @@ export function Rise({
     show: {
       opacity: 1,
       y: 0,
-      transition: { duration: 0.6, ease: EASE },
+      transition: { duration: 0.45, ease: EASE },
     },
   };
 
