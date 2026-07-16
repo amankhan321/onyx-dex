@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, ChevronDown } from "lucide-react";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { ADDR, arcTestnet, erc20Abi, fmt, parse, poolAbi, quoterAbi, routerAbi } from "@/lib/contracts";
 import { RouteSplit, type Quote } from "./RouteSplit";
@@ -19,6 +19,41 @@ export function Swap() {
 
   const inSym = zeroForOne ? "USDC" : "EURC";
   const outSym = zeroForOne ? "EURC" : "USDC";
+  const [openSel, setOpenSel] = useState<"in" | "out" | null>(null);
+
+  const TokenPill = ({ sym, side }: { sym: string; side: "in" | "out" }) => (
+    <div className="relative">
+      <button
+        onClick={() => setOpenSel(openSel === side ? null : side)}
+        className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#232c40] px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#2a3550]"
+      >
+        <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${sym === "USDC" ? "bg-[#2775CA]" : "bg-[#3550c8]"}`}>
+          {sym === "USDC" ? "$" : "€"}
+        </span>
+        {sym}
+        <ChevronDown size={12} className="text-muted" />
+      </button>
+      {openSel === side && (
+        <div className="absolute right-0 z-30 mt-1 w-28 overflow-hidden rounded-xl border border-white/10 bg-[#1c2333] shadow-xl">
+          {["USDC", "EURC"].map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                if (s !== sym) setZeroForOne((v) => !v);
+                setOpenSel(null);
+              }}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-xs ${s === sym ? "text-white" : "text-muted hover:bg-white/5 hover:text-white"}`}
+            >
+              <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${s === "USDC" ? "bg-[#2775CA]" : "bg-[#3550c8]"}`}>
+                {s === "USDC" ? "$" : "€"}
+              </span>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
   const amountIn = parse(amount);
 
   // Quoting is a view call. It costs nothing, so we do it on every keystroke.
@@ -100,9 +135,9 @@ export function Swap() {
   return (
     <div>
       <div className="inner p-4">
-        <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-faint">
-          <span>You pay</span>
-          <span className="text-muted">{inSym}</span>
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-muted">You pay</span>
+          <TokenPill sym={inSym} side="in" />
         </div>
         <input
           value={amount}
@@ -124,9 +159,9 @@ export function Swap() {
       </div>
 
       <div className="inner mt-4 p-4">
-        <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-faint">
-          <span>You receive</span>
-          <span className="text-muted">{outSym}</span>
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-muted">You receive</span>
+          <TokenPill sym={outSym} side="out" />
         </div>
         <div className="mt-2 font-mono text-[26px] tabular text-fg">
           {quote ? fmt(quote.expectedOut) : "0.0000"}
@@ -155,6 +190,11 @@ export function Swap() {
           {status}
         </p>
       )}
+
+      <p className="mt-3 flex items-center justify-center gap-1.5 text-[10px] text-faint">
+        <span className="h-1 w-1 rounded-full bg-mint" />
+        Powered by Arc Network · Sub-second finality · ~$0.01 fees
+      </p>
     </div>
   );
 }

@@ -12,9 +12,9 @@
      lighter so they read as lifted rather than same-grey-on-grey. The flat
      look came from base and cards being nearly identical — this separates them. */
   /* True deep near-black. Everything above pops against it. */
-  --base: #08080d;
-  --raise: #12121b;
-  --sink: #050509;
+  --base: #0d1220;
+  --raise: #1a2130;
+  --sink: #0a0e18;
 
   --fg: #f6f6fa;
   --muted: #a2a8b4;
@@ -81,25 +81,20 @@ body::before {
   border: 1px solid rgba(255, 255, 255, 0.12);
   /* Lit from above: brighter at the top edge, sinking to near-transparent at
      the bottom, so the card reads as catching the spotlight. */
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.07) 0%,
-    rgba(255, 255, 255, 0.025) 22%,
-    rgba(255, 255, 255, 0.012) 100%
-  );
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  /* SOLID raised panel — the transparent glass read dim against near-black.
+     Bright slate, lit top edge, real elevation (competitor-grade brightness). */
+  background: linear-gradient(180deg, #1e2637 0%, #171d2b 100%);
   box-shadow: var(--glass-shadow);
 }
 
 .inner {
   border-radius: var(--r-inner);
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255,255,255,0.09);
+  background: #131927;
   transition: all 0.4s var(--ease);
 }
 .inner:hover {
-  background: rgba(255, 255, 255, 0.045);
+  background: #172033;
   border-color: rgba(255, 255, 255, 0.14);
 }
 .inner:focus-within {

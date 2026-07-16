@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { Ambient } from "@/components/Ambient";
-import { CursorGlow } from "@/components/CursorGlow";
 import { Footer } from "@/components/Footer";
 import { Ticker } from "@/components/Ticker";
 
@@ -32,7 +31,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-screen font-sans antialiased">
         <Ambient />
-        <CursorGlow />
         <Providers>
           <div className="relative z-10 flex min-h-screen flex-col">
             <Ticker />
