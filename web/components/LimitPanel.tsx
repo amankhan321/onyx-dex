@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { useAccount, useBalance, useWriteContract } from "wagmi";
+import { useAccount, useBalance, useReadContract, useWriteContract } from "wagmi";
+import { usePool } from "@/lib/useBook";
 import { ADDR, arcTestnet, bookAbi, erc20Abi, parse, tickOf } from "@/lib/contracts";
 
 export function LimitPanel() {
@@ -10,11 +11,41 @@ export function LimitPanel() {
   const { writeContractAsync, isPending } = useWriteContract();
   const { data: gasBal } = useBalance({ address, chainId: arcTestnet.id, query: { enabled: !!address } });
   const noGas = !!address && gasBal != null && gasBal.value === 0n;
+  const { data: pool } = usePool();
+  const { data: eurcBal } = useReadContract({
+    address: ADDR.eurc as `0x${string}`, abi: erc20Abi, functionName: "balanceOf",
+    args: address ? [address] : undefined, chainId: arcTestnet.id, query: { enabled: !!address },
+  });
+
+
 
   const [isBid, setIsBid] = useState(true);
   const [price, setPrice] = useState("0.9300");
   const [size, setSize] = useState("2");
   const [status, setStatus] = useState<string | null>(null);
+
+  // Pre-flight checks (the contract enforces all of this on-chain too — these
+  // exist so the user sees the problem BEFORE MetaMask, not as a revert).
+  const priceNum = Number(price) || 0;
+  const sizeAmt = parse(size);
+  const escrowNeeded = isBid
+    ? BigInt(Math.ceil(priceNum * Number(sizeAmt))) // EURC, 6-dec
+    : sizeAmt; // USDC
+  const escrowBal: bigint | undefined = isBid
+    ? (eurcBal as bigint | undefined)
+    : gasBal ? gasBal.value / 10n ** 12n : undefined;
+  const insufficientEscrow =
+    !!address && escrowBal != null && sizeAmt > 0n && escrowNeeded > escrowBal;
+  // Off-market warning: a bid above the curve (or ask below) gets picked off
+  // instantly at the maker's loss. Warn past 1% deviation.
+  const mkt = pool?.ammPrice ?? 0;
+  const offMarketPct =
+    mkt > 0 && priceNum > 0
+      ? isBid
+        ? ((priceNum - mkt) / mkt) * 100
+        : ((mkt - priceNum) / mkt) * 100
+      : 0;
+  const offMarket = offMarketPct > 1;
 
   async function place() {
     if (!address) return;
@@ -110,12 +141,24 @@ export function LimitPanel() {
         <Field label="Size (USDC)" value={size} onChange={setSize} />
       </div>
 
+      {sizeAmt > 0n && priceNum > 0 && (
+        <p className="mt-3 text-center font-mono text-[11px] text-muted">
+          Escrow: {(Number(escrowNeeded) / 1e6).toFixed(4)} {isBid ? "EURC" : "USDC"}
+          {escrowBal != null && ` · you have ${(Number(escrowBal) / 1e6).toFixed(4)}`}
+        </p>
+      )}
+      {offMarket && (
+        <p className="mt-2 rounded-lg border border-yellow-500/30 bg-yellow-500/[0.08] p-2 text-center text-[11px] text-yellow-600">
+          {offMarketPct.toFixed(1)}% {isBid ? "above" : "below"} market ({mkt.toFixed(4)}) — this
+          order will be filled immediately at your loss
+        </p>
+      )}
       <button
         onClick={place}
-        disabled={!address || isPending || noGas}
+        disabled={!address || isPending || noGas || insufficientEscrow}
         className="cta mt-4 w-full bg-indigo/80 py-2.5 text-sm font-medium text-white disabled:opacity-25"
       >
-        {!address ? "Connect wallet" : noGas ? "Need USDC for gas (faucet)" : "Place limit order"}
+        {!address ? "Connect wallet" : noGas ? "Need USDC for gas (faucet)" : insufficientEscrow ? `Insufficient ${isBid ? "EURC" : "USDC"} balance` : "Place limit order"}
       </button>
 
       <button
