@@ -35,7 +35,7 @@ export default function Page() {
         <Stagger gap={0.08} whenInView={false} className="mx-auto flex max-w-xl flex-col gap-10">
           {/* -------- terminal, top-left -------- */}
           <Rise>
-            <div className="glass lift p-6">
+            <div id="terminal" className="glass lift scroll-mt-24 p-6">
               <div className="relative mb-6 grid grid-cols-3 gap-1 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1">
                 {TABS.map((t) => (
                   <button
@@ -165,7 +165,12 @@ export default function Page() {
         {/* -------- the book, full width -------- */}
         <Stagger gap={0.06} className="mt-6">
           <Rise>
-            <BookLadder onMake={() => setTab("Make")} />
+            <BookLadder
+              onMake={() => {
+                setTab("Make");
+                document.getElementById("terminal")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            />
           </Rise>
         </Stagger>
       </main>
