@@ -342,3 +342,15 @@ body::before {
     var(--base);
 }
 [data-theme="light"] .row:hover { background: rgba(0,0,0,0.03); }
+
+/* Popup-style stat cards: heavier float + pop on hover. */
+.popup-card {
+  box-shadow: 0 16px 48px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.3),
+    inset 0 1px 0 rgba(255,255,255,0.12);
+  transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+}
+.popup-card:hover { transform: translateY(-4px) scale(1.03); }
+[data-theme="light"] .popup-card {
+  box-shadow: 0 16px 48px rgba(30,32,70,0.14), 0 4px 12px rgba(30,32,70,0.08),
+    inset 0 1px 0 rgba(255,255,255,0.9);
+}

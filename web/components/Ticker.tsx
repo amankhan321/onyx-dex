@@ -13,7 +13,7 @@ export function Ticker() {
   const decimals = (p: string) => (p.includes("JPY") ? 2 : 4);
 
   return (
-    <div className="relative z-20 flex items-center gap-4 border-b border-[color:var(--line)] bg-black/40 px-4 py-2 backdrop-blur-xl">
+    <div className="relative z-20 flex items-center gap-4 border-b border-[color:var(--line)] bg-black/40 px-4 py-3 backdrop-blur-xl">
       <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-amber-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-amber-400/90">
         <span className="h-1 w-1 animate-pulse rounded-full bg-amber-400" />
         Market
@@ -25,8 +25,8 @@ export function Ticker() {
             <span className="rounded bg-indigo/20 px-1.5 py-[1px] font-mono text-[9px] font-medium uppercase tracking-wider text-indigo">
               ArcBook
             </span>
-            <span className="font-mono text-[11px] text-muted">USDC/EURC</span>
-            <span className="font-mono text-[11px] tabular text-fg">
+            <span className="font-mono text-[13px] text-muted">USDC/EURC</span>
+            <span className="font-mono text-[13px] tabular text-fg">
               {pool.ammPrice.toFixed(5)}
             </span>
           </div>
@@ -39,9 +39,9 @@ export function Ticker() {
             : t.price.toFixed(decimals(t.pair));
           return (
             <div key={t.pair} className="flex shrink-0 items-baseline gap-2">
-              <span className="font-mono text-[11px] text-muted">{t.pair}</span>
+              <span className="font-mono text-[13px] text-muted">{t.pair}</span>
               <span
-                className={`font-mono text-[11px] tabular tabular-nums transition-colors duration-500 ${
+                className={`font-mono text-[13px] tabular tabular-nums transition-colors duration-500 ${
                   up ? "text-mint" : "text-rose"
                 }`}
               >
