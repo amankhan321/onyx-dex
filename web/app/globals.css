@@ -369,3 +369,24 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   .hero-line-a, .hero-line-b { opacity: 1; transform: none; }
 }
+
+/* Hero headline split: line A enters from the left, line B from the right,
+   both settling to center. Triggered by IntersectionObserver adding .hero-in. */
+.hero-line-a,
+.hero-line-b {
+  display: inline-block;
+  opacity: 0;
+  transition: opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.hero-line-a { transform: translateX(-80px); }
+.hero-line-b { transform: translateX(80px); transition-delay: 0.08s; }
+.hero-in .hero-line-a,
+.hero-in .hero-line-b {
+  opacity: 1;
+  transform: translateX(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-line-a,
+  .hero-line-b { opacity: 1; transform: none; transition: none; }
+}
