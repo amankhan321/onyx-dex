@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { useAccount, useBalance, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { decodeEventLog } from "viem";
-import { usePool } from "@/lib/useBook";
+import { useBook, usePool } from "@/lib/useBook";
 import { ADDR, arcTestnet, bookAbi, erc20Abi, parse, tickOf } from "@/lib/contracts";
 
 const placedAbi = [
@@ -28,6 +28,7 @@ export function LimitPanel() {
   const { data: gasBal } = useBalance({ address, chainId: arcTestnet.id, query: { enabled: !!address } });
   const noGas = !!address && gasBal != null && gasBal.value === 0n;
   const { data: pool } = usePool();
+  const { data: book } = useBook();
   const { data: eurcBal } = useReadContract({
     address: ADDR.eurc as `0x${string}`, abi: erc20Abi, functionName: "balanceOf",
     args: address ? [address] : undefined, chainId: arcTestnet.id, query: { enabled: !!address },
@@ -66,6 +67,16 @@ export function LimitPanel() {
         : ((mkt - priceNum) / mkt) * 100
       : 0;
   const offMarket = offMarketPct > 1;
+
+  // POST-ONLY RULE: a bid at/above the best ask (or ask at/below the best bid)
+  // would cross the spread — the contract reverts WouldCross. Catch it BEFORE
+  // the wallet opens instead of letting the tx fail.
+  const bestAsk = book?.asks?.[0]?.price;
+  const bestBid = book?.bids?.[0]?.price;
+  const wouldCross =
+    priceNum > 0 &&
+    ((isBid && bestAsk != null && priceNum >= bestAsk) ||
+      (!isBid && bestBid != null && priceNum <= bestBid));
 
   async function place() {
     if (!address) return;
@@ -207,18 +218,24 @@ export function LimitPanel() {
           {escrowBal != null && ` · you have ${(Number(escrowBal) / 1e6).toFixed(4)}`}
         </p>
       )}
-      {offMarket && (
+      {wouldCross && (
+        <p className="mt-2 rounded-lg border border-rose/40 bg-rose/[0.08] p-2 text-center text-[11px] text-rose">
+          Crosses the spread: {isBid ? `bid ≥ best ask (${bestAsk?.toFixed(4)})` : `ask ≤ best bid (${bestBid?.toFixed(4)})`}.
+          Post-only rejects this — {isBid ? "lower your bid" : "raise your ask"}, or use Swap to trade now.
+        </p>
+      )}
+      {!wouldCross && offMarket && (
         <p className="mt-2 rounded-lg border border-yellow-500/30 bg-yellow-500/[0.08] p-2 text-center text-[11px] text-yellow-600">
-          {offMarketPct.toFixed(1)}% {isBid ? "above" : "below"} market ({mkt.toFixed(4)}) — this
-          order will be filled immediately at your loss
+          {offMarketPct.toFixed(1)}% {isBid ? "above" : "below"} the curve ({mkt.toFixed(4)}) — the
+          first taker to arrive will fill you at this price, at your loss
         </p>
       )}
       <button
         onClick={place}
-        disabled={!address || isPending || noGas || insufficientEscrow}
+        disabled={!address || isPending || noGas || insufficientEscrow || wouldCross}
         className="cta mt-4 w-full bg-indigo/80 py-2.5 text-sm font-medium text-white disabled:opacity-25"
       >
-        {!address ? "Connect wallet" : noGas ? "Need USDC for gas (faucet)" : insufficientEscrow ? `Insufficient ${isBid ? "EURC" : "USDC"} balance` : "Place limit order"}
+        {!address ? "Connect wallet" : noGas ? "Need USDC for gas (faucet)" : insufficientEscrow ? `Insufficient ${isBid ? "EURC" : "USDC"} balance` : wouldCross ? "Would cross the spread" : "Place limit order"}
       </button>
 
       <button
