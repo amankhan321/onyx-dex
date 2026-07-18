@@ -4,15 +4,14 @@ import { useState } from "react";
 import { useConnect } from "wagmi";
 
 /**
- * Lists every detected connector by name (MetaMask, OKX, Rabby, Coinbase, …).
- * EIP-6963 means each installed extension shows up as its own entry, so we
- * don't hardcode a wallet list — we render whatever the browser actually has.
+ * Lists every detected extension wallet by name (MetaMask, OKX, Rabby,
+ * Phantom …). EIP-6963 means each installed wallet is its own entry, so we
+ * render whatever the browser actually has rather than a hardcoded list.
  */
 export function ConnectMenu() {
   const { connect, connectors, isPending } = useConnect();
   const [open, setOpen] = useState(false);
 
-  // De-dupe by name (some wallets register twice via 6963 + legacy inject).
   const seen = new Set<string>();
   const list = connectors.filter((c) => {
     if (seen.has(c.name)) return false;
@@ -50,7 +49,7 @@ export function ConnectMenu() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={c.icon} alt="" className="h-4 w-4 rounded" />
                 )}
-                {c.name}
+                {c.name === "Injected" ? "Browser Wallet" : c.name}
               </button>
             ))
           )}
