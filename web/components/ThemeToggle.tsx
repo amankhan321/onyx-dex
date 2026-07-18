@@ -8,7 +8,7 @@ export function ThemeToggle() {
   const [light, setLight] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("arcbook-theme");
+    const saved = localStorage.getItem("onyx-theme");
     // Default to LIGHT unless the user explicitly chose dark.
     const isLight = saved !== "dark";
     setLight(isLight);
@@ -19,7 +19,7 @@ export function ThemeToggle() {
     const next = !light;
     setLight(next);
     document.documentElement.setAttribute("data-theme", next ? "light" : "dark");
-    localStorage.setItem("arcbook-theme", next ? "light" : "dark");
+    localStorage.setItem("onyx-theme", next ? "light" : "dark");
   };
 
   return (

@@ -1,4 +1,4 @@
-# Deploying ArcBook
+# Deploying Onyx
 
 Two targets. They serve different purposes and both are supported.
 
@@ -27,7 +27,7 @@ git clone https://github.com/amankhan321/arc-dex.git
 cd arc-dex
 
 # with a domain (Caddy fetches a TLS cert automatically on first boot)
-export SITE_ADDRESS=arcbook.yourdomain.com
+export SITE_ADDRESS=onyx.yourdomain.com
 docker compose up -d --build
 
 # no domain yet? Caddy falls back to plain HTTP on :80

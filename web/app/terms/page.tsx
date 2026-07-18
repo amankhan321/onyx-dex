@@ -1,15 +1,15 @@
 import { Prose, Section } from "@/components/Prose";
 
-export const metadata = { title: "Terms — ArcBook" };
+export const metadata = { title: "Terms — Onyx" };
 
 export default function Terms() {
   return (
     <Prose
       title="Terms of use"
       updated="14 July 2026"
-      lede="ArcBook is unaudited software on a test network, published as an experiment. Using it means you accept the terms below."
+      lede="Onyx is unaudited software on a test network, published as an experiment. Using it means you accept the terms below."
     >
-      <Section heading="What ArcBook is">
+      <Section heading="What Onyx is">
         <p>
           A set of immutable smart contracts deployed to Arc Testnet, and a web
           page that talks to them. We operate no exchange, hold no custody, take
@@ -56,7 +56,7 @@ export default function Terms() {
 
       <Section heading="Eligibility">
         <p>
-          Do not use ArcBook where doing so would break the law that applies to
+          Do not use Onyx where doing so would break the law that applies to
           you. You are responsible for knowing what that law is.
         </p>
       </Section>

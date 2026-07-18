@@ -26,7 +26,7 @@ export function Header() {
             className="h-[18px] w-[18px] rounded-[6px] bg-gradient-to-br from-indigo to-mint"
           />
           <span className="text-sm font-medium tracking-tight text-fg">
-            ArcBook
+            Onyx
           </span>
           <span className="hidden rounded-full border border-[color:var(--line)] px-2 py-0.5 text-[10px] text-muted sm:block">
             Arc Testnet

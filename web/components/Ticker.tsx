@@ -5,7 +5,7 @@ import { usePool } from "@/lib/useBook";
 
 /**
  * The moving tape across the top. Labelled MARKET, hard left, so it is
- * unambiguous that these are reference rates and not ArcBook's book.
+ * unambiguous that these are reference rates and not Onyx's book.
  */
 export function Ticker() {
   const ticks = useTicker();
@@ -23,7 +23,7 @@ export function Ticker() {
         {pool && (
           <div className="flex shrink-0 items-baseline gap-2">
             <span className="rounded bg-indigo/20 px-1.5 py-[1px] font-mono text-[9px] font-medium uppercase tracking-wider text-indigo">
-              ArcBook
+              Onyx
             </span>
             <span className="font-mono text-[13px] text-muted">USDC/EURC</span>
             <span className="font-mono text-[13px] tabular text-fg">

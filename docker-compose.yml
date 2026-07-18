@@ -1,4 +1,4 @@
-# ArcBook droplet stack: frontend + TLS + keeper.
+# Onyx droplet stack: frontend + TLS + keeper.
 #
 #   cp .env.example .env       # put the updater PRIVATE_KEY in .env
 #   docker compose up -d --build

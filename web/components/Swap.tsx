@@ -245,7 +245,7 @@ export function Swap() {
 
       <p className="mt-3 flex items-center justify-center gap-1.5 text-[10px] text-faint">
         <span className="h-1 w-1 rounded-full bg-mint" />
-        Powered by Arc Network · Sub-second finality · ~$0.01 fees
+        Built on Arc · Sub-second finality · ~$0.01 fees
       </p>
     </div>
   );

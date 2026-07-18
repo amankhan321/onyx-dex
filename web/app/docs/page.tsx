@@ -1,13 +1,13 @@
 import { Prose, Section } from "@/components/Prose";
 import { ADDR } from "@/lib/contracts";
 
-export const metadata = { title: "How it works — ArcBook" };
+export const metadata = { title: "How it works — Onyx" };
 
 export default function Docs() {
   return (
     <Prose
       title="How it works"
-      lede="Every other DEX on Arc is a Curve fork. ArcBook is an order book with a curve underneath it, and the difference is not cosmetic."
+      lede="Every other DEX on Arc is a Curve fork. Onyx is an order book with a curve underneath it, and the difference is not cosmetic."
     >
       <Section heading="Why nobody builds order books on-chain">
         <p>
@@ -36,7 +36,7 @@ export default function Docs() {
           that does not exist, and arbitrageurs drain it toward par.
         </p>
         <p>
-          ArcBook converts EURC into USDC terms through a rate provider{" "}
+          Onyx converts EURC into USDC terms through a rate provider{" "}
           <em>before</em> the invariant ever sees it, so the 1:1 assumption is
           actually true. Ask the pool to price one USDC and it answers ~0.925,
           not ~0.999.

@@ -1,17 +1,17 @@
 import { Prose, Section } from "@/components/Prose";
 
-export const metadata = { title: "Privacy — ArcBook" };
+export const metadata = { title: "Privacy — Onyx" };
 
 export default function Privacy() {
   return (
     <Prose
       title="Privacy"
       updated="14 July 2026"
-      lede="ArcBook has no backend. There is no server that belongs to us, no database, no account, and no login. That makes this policy unusually short, and we would rather it be short and true than long and reassuring."
+      lede="Onyx has no backend. There is no server that belongs to us, no database, no account, and no login. That makes this policy unusually short, and we would rather it be short and true than long and reassuring."
     >
       <Section heading="What we collect">
         <p>
-          Nothing. ArcBook is a static web page. It holds no user records, sets
+          Nothing. Onyx is a static web page. It holds no user records, sets
           no tracking cookies, and runs no analytics. We cannot identify you,
           because we never receive anything that would let us.
         </p>

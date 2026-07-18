@@ -1,5 +1,5 @@
 /**
- * ArcBook keeper.
+ * Onyx keeper.
  *
  * Two jobs, one loop:
  *
@@ -153,7 +153,7 @@ async function crankTwaps() {
   }
 }
 
-console.log(`arcbook-keeper up. updater=${wallet.address} rp=${RATE_PROVIDER}`);
+console.log(`onyx-keeper up. updater=${wallet.address} rp=${RATE_PROVIDER}`);
 for (;;) {
   try {
     await tendRate();

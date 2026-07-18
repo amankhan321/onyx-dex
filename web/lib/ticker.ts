@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
  * Live FX reference rates for the top ticker.
  *
  * IMPORTANT FRAMING: these are external MARKET REFERENCE rates (ECB via
- * frankfurter.app), NOT prices that trade on ArcBook. ArcBook trades USDC/EURC
+ * frankfurter.app), NOT prices that trade on Onyx. Onyx trades USDC/EURC
  * only. The ticker is clearly labelled "MARKET" so nobody mistakes a scrolling
  * GBP/JPY quote for something executable here. Showing real rates honestly
  * framed reads as serious; faking a trading ticker reads as a scam.

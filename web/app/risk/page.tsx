@@ -1,6 +1,6 @@
 import { Prose, Section } from "@/components/Prose";
 
-export const metadata = { title: "Risk — ArcBook" };
+export const metadata = { title: "Risk — Onyx" };
 
 export default function Risk() {
   return (

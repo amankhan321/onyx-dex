@@ -9,7 +9,7 @@ export type SwapStage = "idle" | "approving" | "swapping" | "done" | "error";
 /**
  * Confirmation modal for a swap.
  *
- * Deliberately NOT a bridge/relay tracker: an ArcBook swap is a single atomic
+ * Deliberately NOT a bridge/relay tracker: an Onyx swap is a single atomic
  * transaction on one chain (USDC<->EURC through the Router). Showing a
  * "Send -> Relay -> Receive on destination chain" flow would tell the user
  * their funds cross a bridge, which they don't. The honest three steps are

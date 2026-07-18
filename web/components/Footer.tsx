@@ -10,11 +10,11 @@ export function Footer() {
         <div className="max-w-xs">
           <div className="flex items-center gap-2.5">
             <div className="h-4 w-4 rounded-[5px] bg-gradient-to-br from-indigo to-mint" />
-            <span className="text-sm font-medium text-fg">ArcBook</span>
+            <span className="text-sm font-medium text-fg">Onyx</span>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-faint">
-            A hybrid CLOB + rate-adjusted StableSwap for stablecoin FX, live on
-            Arc Testnet.
+            Onyx — an on-chain order book. Hybrid CLOB + rate-adjusted
+            StableSwap for stablecoin FX. Built on Arc.
           </p>
         </div>
 

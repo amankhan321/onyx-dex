@@ -1,4 +1,4 @@
-# ArcBook
+# Onyx
 
 **The first on-chain central limit order book on Arc.** Hybrid CLOB + rate-adjusted StableSwap AMM for stablecoin FX.
 
@@ -15,7 +15,7 @@ Arc removes both constraints:
 - **Sub-second deterministic finality** (Malachite consensus) — a maker can quote and pull without being picked off across a 12-second block.
 - **Flat ~$0.01 gas, denominated in USDC** — placing and cancelling orders costs a rounding error, so real market-making is economic.
 
-Circle is explicitly building Arc for **FX and capital markets**. Institutions doing FX do not want AMM slippage; they want limit orders, price-time priority, and TWAP. ArcBook gives them a book, and keeps an AMM underneath as backstop depth.
+Circle is explicitly building Arc for **FX and capital markets**. Institutions doing FX do not want AMM slippage; they want limit orders, price-time priority, and TWAP. Onyx gives them a book, and keeps an AMM underneath as backstop depth.
 
 The order book is a primitive that is **only viable on Arc**. That's the whole thesis.
 
@@ -27,7 +27,7 @@ Every Arc DEX runs a Curve 1:1 StableSwap invariant on **USDC/EURC**.
 
 EURC is euro-pegged. It trades around **1.08-1.16 USD**, not 1.00. The StableSwap invariant *assumes the coins trade at par* — that assumption is baked into the maths. Feed it a genuine FX pair and the curve concentrates liquidity around a peg that does not exist, and arbitrageurs drain it toward par.
 
-ArcBook uses a **rate-adjusted** invariant: coin1 is converted into coin0 terms through an immutable rate provider *before* it ever touches the curve, so the 1:1 assumption is actually true. There is a test that asserts we do not quote near 1:1 on a 1.08 pair (`test_NaivePegWouldBeDrained`).
+Onyx uses a **rate-adjusted** invariant: coin1 is converted into coin0 terms through an immutable rate provider *before* it ever touches the curve, so the 1:1 assumption is actually true. There is a test that asserts we do not quote near 1:1 on a 1.08 pair (`test_NaivePegWouldBeDrained`).
 
 ---
 
