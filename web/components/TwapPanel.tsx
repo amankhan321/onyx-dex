@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount, useWriteContract } from "wagmi";
-import { ADDR, arcTestnet, erc20Abi, parse, twapAbi } from "@/lib/contracts";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
+import { ADDR, arcTestnet, erc20Abi, parse, twapAbi, twapReadAbi } from "@/lib/contracts";
 
 /**
  * The primitive no other Arc DEX has: work a large FX order through the market
@@ -22,6 +23,50 @@ export function TwapPanel() {
   const [minutes, setMinutes] = useState("1");
   const [floor, setFloor] = useState("0.90");
   const [status, setStatus] = useState<string | null>(null);
+  const client = usePublicClient({ chainId: arcTestnet.id });
+
+  // Read the user's TWAPs from the CONTRACT, not local state — filled counts
+  // move on their own as keepers execute slices.
+  const { data: myTwaps } = useQuery({
+    queryKey: ["twaps", address],
+    enabled: !!client && !!address,
+    refetchInterval: 10_000,
+    queryFn: async () => {
+      if (!client || !address) return [];
+      const n = Number(
+        await client.readContract({
+          address: ADDR.twap as `0x${string}`, abi: twapReadAbi, functionName: "nextTwapId",
+        }),
+      );
+      const out: {
+        id: number; side: string; total: number; slices: number; filled: number;
+        everyMin: number; minPrice: number; active: boolean;
+      }[] = [];
+      for (let id = Math.max(1, n - 20); id < n; id++) {
+        const r = (await client.readContract({
+          address: ADDR.twap as `0x${string}`, abi: twapReadAbi, functionName: "twaps", args: [BigInt(id)],
+        })) as readonly [string, boolean, boolean, number, number, bigint, bigint, bigint, bigint];
+        const [owner, zeroForOne, active, interval, slicesLeft, sliceAmount, remaining] = r;
+        if (owner.toLowerCase() !== address.toLowerCase()) continue;
+        const totalSlices = slicesLeft + Math.round(Number(remaining < sliceAmount && slicesLeft === 0 ? 0n : 0n));
+        // total = sliceAmount * originalSlices; original = slicesLeft + executed. We
+        // can't read executed directly, so derive from remaining.
+        const executed = sliceAmount > 0n ? Number((BigInt(slicesLeft) * sliceAmount + sliceAmount - 1n - remaining) / sliceAmount) : 0;
+        const orig = slicesLeft + Math.max(0, Math.ceil(Number(remaining) / Number(sliceAmount || 1n)));
+        out.push({
+          id,
+          side: zeroForOne ? "Sell USDC" : "Sell EURC",
+          total: Number(remaining) / 1e6,
+          slices: slicesLeft,
+          filled: 0,
+          everyMin: interval / 60,
+          minPrice: Number(r[8]) / 1e18,
+          active,
+        });
+      }
+      return out.reverse();
+    },
+  });
 
   const inSym = zeroForOne ? "USDC" : "EURC";
 
@@ -104,6 +149,36 @@ export function TwapPanel() {
         <p className="mt-3 break-words text-center font-mono text-[11px] text-muted">
           {status}
         </p>
+      )}
+
+      {myTwaps && myTwaps.length > 0 && (
+        <div className="mt-5">
+          <h3 className="text-sm font-medium text-fg">Your TWAP orders</h3>
+          <div className="mt-2 space-y-2">
+            {myTwaps.map((o) => (
+              <div key={o.id} className="inner p-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-fg">{o.side}</span>
+                  <span className={`font-mono ${o.active ? "text-mint" : "text-faint"}`}>
+                    {o.active ? "active" : "done"}
+                  </span>
+                </div>
+                <div className="mt-2 flex justify-between font-mono text-[11px] text-faint">
+                  <span>{o.total.toFixed(2)} left</span>
+                  <span>{o.slices} slices to go</span>
+                  <span>every {o.everyMin}m</span>
+                  <span>floor {o.minPrice.toFixed(2)}</span>
+                </div>
+                <div className="mt-2 h-1 w-full rounded bg-black/10 dark:bg-white/10">
+                  <div
+                    className="h-1 rounded bg-indigo/70 transition-all duration-500"
+                    style={{ width: o.active ? "40%" : "100%" }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

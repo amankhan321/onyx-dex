@@ -96,6 +96,15 @@ export const routerAbi = [
   },
 ] as const;
 
+export const twapReadAbi = [
+  { type: "function", name: "nextTwapId", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "twaps", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [
+    { name: "owner", type: "address" }, { name: "zeroForOne", type: "bool" }, { name: "active", type: "bool" },
+    { name: "interval", type: "uint32" }, { name: "slicesLeft", type: "uint32" }, { name: "sliceAmount", type: "uint128" },
+    { name: "remaining", type: "uint128" }, { name: "nextExecAt", type: "uint64" }, { name: "minPriceX18", type: "uint192" },
+  ]},
+] as const;
+
 export const twapAbi = [
   {
     type: "function",

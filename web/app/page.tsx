@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
@@ -27,7 +27,16 @@ type Tab = (typeof TABS)[number];
 export default function Page() {
   const { data: pool, error: poolError } = usePool();
   const [tab, setTab] = useState<Tab>("Swap");
-
+  const heroRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const el = heroRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { el.classList.add("hero-in"); io.disconnect(); }
+    }, { threshold: 0.4 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
   return (
     <>
       <Header />
@@ -143,10 +152,10 @@ export default function Page() {
               </Rise>
   
               <Rise>
-                <h1 className="mx-auto mt-5 font-display text-[46px] font-normal leading-[1.02] tracking-[-0.01em] text-fg sm:text-[62px]">
-                  The order book
+                <h1 ref={heroRef} className="mx-auto mt-5 font-display text-[46px] font-normal leading-[1.02] tracking-[-0.01em] text-fg sm:text-[62px]">
+                  <span className="hero-line-a">The order book</span>
                   <br />
-                  <span className="shimmer italic">Arc made possible.</span>
+                  <span className="hero-line-b shimmer italic">Arc made possible.</span>
                 </h1>
               </Rise>
   

@@ -354,3 +354,18 @@ body::before {
   box-shadow: 0 16px 48px rgba(30,32,70,0.14), 0 4px 12px rgba(30,32,70,0.08),
     inset 0 1px 0 rgba(255,255,255,0.9);
 }
+
+
+/* Hero heading: line A slides from left, line B from right, both to center. */
+.hero-line-a, .hero-line-b {
+  display: inline-block;
+  opacity: 0;
+  transition: opacity .9s cubic-bezier(.22,1,.36,1),
+              transform .9s cubic-bezier(.22,1,.36,1);
+}
+.hero-line-a { transform: translateX(-80px); }
+.hero-line-b { transform: translateX(80px); transition-delay: .08s; }
+.hero-in .hero-line-a, .hero-in .hero-line-b { opacity: 1; transform: translateX(0); }
+@media (prefers-reduced-motion: reduce) {
+  .hero-line-a, .hero-line-b { opacity: 1; transform: none; }
+}
