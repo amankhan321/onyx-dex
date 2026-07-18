@@ -14,6 +14,53 @@ const MAX_LEVELS = 12;
  * bitmap via nextBidBelow / nextAskAbove. No indexer, no subgraph, no backend.
  * The book IS the contract.
  */
+const placedEvent = {
+  type: "event",
+  name: "OrderPlaced",
+  inputs: [
+    { name: "id", type: "uint64", indexed: true },
+    { name: "maker", type: "address", indexed: true },
+    { name: "isBid", type: "bool", indexed: false },
+    { name: "tick", type: "uint32", indexed: false },
+    { name: "baseAmount", type: "uint128", indexed: false },
+    { name: "quoteEscrow", type: "uint256", indexed: false },
+  ],
+} as const;
+
+// Tick discovery from OrderPlaced logs, cached 30s. The on-chain bitmap scan is
+// hard-bounded (MAX_WORD_SCAN=64 words) — safe for takers by design, but blind
+// to levels resting far from the spread (e.g. an ask at 4.00 vs best 1.50).
+// Event logs see everything ever placed; stale ticks cost nothing because the
+// depth check filters them (cancelled/filled levels read 0 and drop out).
+// Fault-tolerant: on any failure we keep the last set, worst case = today's UI.
+const BOOK_DEPLOY_BLOCK = 51_700_000n;
+let eventTicks: { bids: number[]; asks: number[] } = { bids: [], asks: [] };
+let eventTicksAt = 0;
+
+async function discoverTicks(client: NonNullable<ReturnType<typeof usePublicClient>>) {
+  if (Date.now() - eventTicksAt < 30_000) return eventTicks;
+  try {
+    const logs = await client.getLogs({
+      address: ADDR.book as `0x${string}`,
+      event: placedEvent,
+      fromBlock: BOOK_DEPLOY_BLOCK,
+      toBlock: "latest",
+    });
+    const bids = new Set<number>();
+    const asks = new Set<number>();
+    for (const l of logs) {
+      const a = l.args as { isBid?: boolean; tick?: number };
+      if (a.tick == null) continue;
+      (a.isBid ? bids : asks).add(Number(a.tick));
+    }
+    eventTicks = { bids: [...bids], asks: [...asks] };
+    eventTicksAt = Date.now();
+  } catch {
+    /* keep last known set */
+  }
+  return eventTicks;
+}
+
 export function useBook(refetchMs = 2000) {
   // Pinned to Arc explicitly. Without this, usePublicClient() follows the
   // WALLET's chain — and if the wallet sits on mainnet (or anything not in our
@@ -55,10 +102,14 @@ export function useBook(refetchMs = 2000) {
         ],
       }) as [number, number];
 
-      const [bidTicks, askTicks] = await Promise.all([
+      const [walkedBids, walkedAsks, discovered] = await Promise.all([
         walkTicks(true, Number(bestBid)),
         walkTicks(false, Number(bestAsk)),
+        discoverTicks(client),
       ]);
+      // Union walk + event-discovered ticks; depth check below filters dead ones.
+      const bidTicks = [...new Set([...walkedBids, ...discovered.bids])];
+      const askTicks = [...new Set([...walkedAsks, ...discovered.asks])];
 
       // All level depths (both sides) in ONE multicall.
       const all = [...bidTicks.map((t) => [true, t] as const), ...askTicks.map((t) => [false, t] as const)];
@@ -79,6 +130,8 @@ export function useBook(refetchMs = 2000) {
           (b ? bids : asks).push({ tick: t, price: priceOf(t), size: r.result as bigint });
         }
       });
+      bids.sort((a, b) => b.tick - a.tick);
+      asks.sort((a, b) => a.tick - b.tick);
       return { bids, asks };
     },
   });
