@@ -9,7 +9,7 @@ import { Swap } from "@/components/Swap";
 import { BookLadder } from "@/components/BookLadder";
 import { LimitPanel } from "@/components/LimitPanel";
 import { TwapPanel } from "@/components/TwapPanel";
-import { Rise, Stagger } from "@/components/Reveal";
+import { Rise, SlideIn, Stagger } from "@/components/Reveal";
 import { PanelBoundary } from "@/components/PanelBoundary";
 import { CountUp } from "@/components/CountUp";
 import { Float } from "@/components/Reveal";
@@ -109,16 +109,16 @@ export default function Page() {
                 </p>
               ))}
             <div className="mx-auto mt-2 grid max-w-xl grid-cols-2 gap-3 text-left sm:grid-cols-4">
-              <StatNum label="Curve price" value={pool?.ammPrice} format={(n) => n.toFixed(5)} sub="EURC per USDC" live />
-              <StatNum
+              <SlideIn from="left" delay={0}><StatNum label="Curve price" value={pool?.ammPrice} format={(n) => n.toFixed(5)} sub="EURC per USDC" live /></SlideIn>
+              <SlideIn from="left" delay={0.08}><StatNum
                 label="LP value"
                 value={pool ? Number(pool.virtualPrice) / 1e18 : undefined}
                 format={(n) => n.toFixed(6)}
                 sub="virtual price"
                 live
-              />
-              <StatNum label="Pool USDC" value={pool ? Number(pool.balance0) / 1e6 : undefined} format={(n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} sub="reserve" />
-              <StatNum label="Pool EURC" value={pool ? Number(pool.balance1) / 1e6 : undefined} format={(n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} sub="reserve" />
+              /></SlideIn>
+              <SlideIn from="right" delay={0.08}><StatNum label="Pool USDC" value={pool ? Number(pool.balance0) / 1e6 : undefined} format={(n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} sub="reserve" /></SlideIn>
+              <SlideIn from="right" delay={0}><StatNum label="Pool EURC" value={pool ? Number(pool.balance1) / 1e6 : undefined} format={(n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} sub="reserve" /></SlideIn>
             </div>
           </Rise>
 
@@ -127,14 +127,14 @@ export default function Page() {
 
         {/* -------- the book, full width -------- */}
         <Stagger gap={0.06} className="mt-6">
-          <Rise>
+          <SlideIn from="right" distance={70}>
             <BookLadder
               onMake={() => {
                 setTab("Make");
                 document.getElementById("terminal")?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
             />
-          </Rise>
+          </SlideIn>
         </Stagger>
 
         <Stagger gap={0.08} className="mt-16">

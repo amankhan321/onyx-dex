@@ -116,3 +116,35 @@ export function Float({
     </motion.div>
   );
 }
+
+
+/**
+ * SlideIn — premium side-entrance. Content drifts in from the left or right on a
+ * long, silky curve and settles into place, triggered once on scroll-in.
+ */
+export function SlideIn({
+  children,
+  from = "left",
+  className,
+  distance = 90,
+  delay = 0,
+}: {
+  children: ReactNode;
+  from?: "left" | "right";
+  className?: string;
+  distance?: number;
+  delay?: number;
+}) {
+  const still = useReducedMotion();
+  return (
+    <motion.div
+      className={className}
+      initial={still ? false : { opacity: 0, x: from === "left" ? -distance : distance }}
+      whileInView={{ opacity: 1, x: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay }}
+    >
+      {children}
+    </motion.div>
+  );
+}
