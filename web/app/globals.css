@@ -272,6 +272,13 @@ body::before {
 .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
 
+/* Ticker rail: was a dark sink strip that read muddy on the light theme.
+   Give it a themed translucent surface so it's crisp in both modes. */
+.ticker-rail {
+  background: color-mix(in srgb, var(--raise) 82%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+
 
 /* Slide-fill CTA: an accent layer sweeps in left-to-right behind the label on
    hover, an arrow slides in, the button lifts 2px with a soft accent glow.
@@ -350,6 +357,7 @@ body::before {
   transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
 }
 .popup-card:hover { transform: translateY(-4px) scale(1.03); }
+.popup-card .stat-value { font-size: 1.15rem; font-weight: 500; }
 [data-theme="light"] .popup-card {
   box-shadow: 0 16px 48px rgba(30,32,70,0.14), 0 4px 12px rgba(30,32,70,0.08),
     inset 0 1px 0 rgba(255,255,255,0.9);
@@ -389,4 +397,24 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   .hero-line-a,
   .hero-line-b { opacity: 1; transform: none; transition: none; }
+}
+
+
+/* Focus halo behind the swap terminal — pulls the eye there on first load.
+   A soft indigo/mint bloom sits just behind the card. */
+.focus-halo { position: relative; }
+.focus-halo::before {
+  content: "";
+  position: absolute;
+  inset: -40px -40px -20px;
+  z-index: -1;
+  border-radius: 40px;
+  background: radial-gradient(60% 55% at 50% 30%,
+    rgba(94,106,210,0.16) 0%, rgba(46,211,167,0.08) 45%, transparent 75%);
+  filter: blur(28px);
+  pointer-events: none;
+}
+[data-theme="light"] .focus-halo::before {
+  background: radial-gradient(60% 55% at 50% 30%,
+    rgba(94,106,210,0.22) 0%, rgba(46,211,167,0.12) 45%, transparent 75%);
 }

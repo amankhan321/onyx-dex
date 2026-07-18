@@ -50,7 +50,7 @@ export default function Page() {
               initial={{ opacity: 0, scale: 0.9, y: 24 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-              className="glass lift scroll-mt-24 p-6"
+              className="glass lift focus-halo scroll-mt-24 p-6"
             >
               <div className="relative mb-6 grid grid-cols-3 gap-1 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1">
                 {TABS.map((t) => (
@@ -216,7 +216,7 @@ function StatNum({
   return (
     <div className={`glass popup-card px-4 py-3 ${live ? "alive" : ""}`}>
       <div className="text-[10px] uppercase tracking-[0.14em] text-faint">{label}</div>
-      <div className="mt-1.5 font-mono text-base tabular text-fg">
+      <div className="stat-value mt-1.5 font-mono text-base tabular text-fg">
         {value == null ? "—" : <CountUp value={value} format={format} />}
       </div>
       <div className="text-[10px] text-faint">{sub}</div>
