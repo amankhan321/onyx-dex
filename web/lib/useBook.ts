@@ -26,26 +26,40 @@ export function useBook(refetchMs = 3000) {
     enabled: !!client,
     retry: 3,
     retryDelay: (n) => Math.min(1000 * 2 ** n, 5000),
+    // Never blank the book on refetch — keep the last ladder on screen while the
+    // next one loads. This is what killed the "shows nothing for 20-30s" feel.
+    placeholderData: (prev) => prev,
+    staleTime: 2000,
     queryFn: async () => {
       if (!client) return { bids: [], asks: [] };
+      const book = ADDR.book as `0x${string}`;
 
       const read = (fn: string, args: readonly unknown[] = []) =>
-        client.readContract({
-          address: ADDR.book as `0x${string}`,
-          abi: bookAbi,
-          functionName: fn as never,
-          args: args as never,
-        });
+        client.readContract({ address: book, abi: bookAbi, functionName: fn as never, args: args as never });
 
+      // Walk only the TICKS sequentially (each next depends on the last), then
+      // fetch every level's depth in ONE Multicall3 call instead of a slow
+      // per-level round-trip. Cuts ~2N sequential calls down to ~N+1.
       const walk = async (isBid: boolean): Promise<Level[]> => {
+        const ticks: number[] = [];
         let tick = Number(await read(isBid ? "bestBid" : "bestAsk"));
-        const out: Level[] = [];
-
-        while (tick !== 0 && out.length < MAX_LEVELS) {
-          const size = (await read("levelDepth", [isBid, tick])) as bigint;
-          if (size > 0n) out.push({ tick, price: priceOf(tick), size });
+        while (tick !== 0 && ticks.length < MAX_LEVELS) {
+          ticks.push(tick);
           tick = Number(await read(isBid ? "nextBidBelow" : "nextAskAbove", [tick]));
         }
+        if (ticks.length === 0) return [];
+
+        const depths = (await client.multicall({
+          allowFailure: false,
+          contracts: ticks.map((t) => ({
+            address: book, abi: bookAbi, functionName: "levelDepth", args: [isBid, t],
+          })),
+        })) as bigint[];
+
+        const out: Level[] = [];
+        ticks.forEach((t, i) => {
+          if (depths[i] > 0n) out.push({ tick: t, price: priceOf(t), size: depths[i] });
+        });
         return out;
       };
 

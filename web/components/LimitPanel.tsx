@@ -2,9 +2,25 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { useAccount, useBalance, useReadContract, useWriteContract } from "wagmi";
+import { useAccount, useBalance, usePublicClient, useReadContract, useWriteContract } from "wagmi";
+import { decodeEventLog } from "viem";
 import { usePool } from "@/lib/useBook";
 import { ADDR, arcTestnet, bookAbi, erc20Abi, parse, tickOf } from "@/lib/contracts";
+
+const placedAbi = [
+  {
+    type: "event",
+    name: "OrderPlaced",
+    inputs: [
+      { name: "id", type: "uint64", indexed: true },
+      { name: "maker", type: "address", indexed: true },
+      { name: "isBid", type: "bool", indexed: false },
+      { name: "tick", type: "uint32", indexed: false },
+      { name: "baseAmount", type: "uint128", indexed: false },
+      { name: "quoteEscrow", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
 
 export function LimitPanel() {
   const { address } = useAccount();
@@ -23,6 +39,10 @@ export function LimitPanel() {
   const [price, setPrice] = useState("0.9300");
   const [size, setSize] = useState("2");
   const [status, setStatus] = useState<string | null>(null);
+
+  type OpenOrder = { id: bigint; side: string; price: string; size: string; tx: string };
+  const [orders, setOrders] = useState<OpenOrder[]>([]);
+  const client = usePublicClient({ chainId: arcTestnet.id });
 
   // Pre-flight checks (the contract enforces all of this on-chain too — these
   // exist so the user sees the problem BEFORE MetaMask, not as a revert).
@@ -77,6 +97,28 @@ export function LimitPanel() {
         args: [isBid, tick, baseAmount],
         chainId: arcTestnet.id,
       });
+
+      // Pull the order id out of the OrderPlaced event so we can cancel it later.
+      let placedId: bigint | undefined;
+      try {
+        const receipt = await client!.waitForTransactionReceipt({ hash });
+        for (const log of receipt.logs) {
+          try {
+            const ev = decodeEventLog({ abi: placedAbi, data: log.data, topics: log.topics });
+            if (ev.eventName === "OrderPlaced") {
+              placedId = (ev.args as { id: bigint }).id;
+              break;
+            }
+          } catch {}
+        }
+      } catch {}
+
+      if (placedId != null) {
+        setOrders((prev) => [
+          { id: placedId!, side: isBid ? "Buy USDC" : "Sell USDC", price, size, tx: hash },
+          ...prev,
+        ]);
+      }
       setStatus(`Resting · ${hash.slice(0, 10)}…`);
     } catch (e) {
       const m = e instanceof Error ? e.message : "failed";
@@ -100,6 +142,24 @@ export function LimitPanel() {
       setStatus("Claimed");
     } catch {
       setStatus("Nothing to claim");
+    }
+  }
+
+  async function cancel(id: bigint) {
+    try {
+      setStatus("Cancelling…");
+      await writeContractAsync({
+        address: ADDR.book as `0x${string}`,
+        abi: bookAbi,
+        functionName: "cancelOrder",
+        args: [id],
+        chainId: arcTestnet.id,
+      });
+      setOrders((prev) => prev.filter((o) => o.id !== id));
+      setStatus("Cancelled — claim to withdraw the escrow");
+    } catch (e) {
+      const m = e instanceof Error ? e.message : "failed";
+      setStatus(m.split("\n")[0].slice(0, 90));
     }
   }
 
@@ -168,6 +228,33 @@ export function LimitPanel() {
       >
         Claim fills
       </button>
+
+      {orders.length > 0 && (
+        <div className="mt-5">
+          <h3 className="text-sm font-medium text-fg">Your open orders</h3>
+          <div className="mt-2 space-y-2">
+            {orders.map((o) => (
+              <div key={o.id.toString()} className="inner flex items-center justify-between p-3">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-fg">{o.side}</div>
+                  <div className="font-mono text-[11px] text-faint">
+                    {o.size} @ {o.price} · #{o.id.toString()}
+                  </div>
+                </div>
+                <button
+                  onClick={() => cancel(o.id)}
+                  className="btn shrink-0 rounded-lg border border-rose/40 px-3 py-1.5 text-[11px] text-rose hover:bg-rose/10"
+                >
+                  Cancel
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-center text-[10px] text-faint">
+            Cancelling returns your escrow to claimable — hit &quot;Claim fills&quot; after.
+          </p>
+        </div>
+      )}
 
       {status && (
         <p className="mt-3 break-words text-center font-mono text-[11px] text-muted">
