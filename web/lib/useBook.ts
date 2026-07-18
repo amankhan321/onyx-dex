@@ -25,12 +25,10 @@ export function useBook(refetchMs = 2000) {
     refetchInterval: refetchMs,
     refetchOnWindowFocus: true,
     enabled: !!client,
-    retry: 3,
-    retryDelay: (n) => Math.min(1000 * 2 ** n, 5000),
-    // Never blank the book on refetch — keep the last ladder on screen while the
-    // next one loads. This is what killed the "shows nothing for 20-30s" feel.
+    retry: 1,
+    retryDelay: 300,
     placeholderData: (prev) => prev,
-    staleTime: 2000,
+    staleTime: 1500,
     queryFn: async () => {
       if (!client) return { bids: [], asks: [] };
       const book = ADDR.book as `0x${string}`;
@@ -38,36 +36,49 @@ export function useBook(refetchMs = 2000) {
       const read = (fn: string, args: readonly unknown[] = []) =>
         client.readContract({ address: book, abi: bookAbi, functionName: fn as never, args: args as never });
 
-      // Walk only the TICKS sequentially (each next depends on the last), then
-      // fetch every level's depth in ONE Multicall3 call instead of a slow
-      // per-level round-trip. Cuts ~2N sequential calls down to ~N+1.
-      const walk = async (isBid: boolean): Promise<Level[]> => {
+      const walkTicks = async (isBid: boolean, start: number): Promise<number[]> => {
         const ticks: number[] = [];
-        let tick = Number(await read(isBid ? "bestBid" : "bestAsk"));
+        let tick = start;
         while (tick !== 0 && ticks.length < MAX_LEVELS) {
           ticks.push(tick);
           tick = Number(await read(isBid ? "nextBidBelow" : "nextAskAbove", [tick]));
         }
-        if (ticks.length === 0) return [];
-
-        const depths = await client.multicall({
-          allowFailure: true,
-          contracts: ticks.map((t) => ({
-            address: book, abi: bookAbi, functionName: "levelDepth", args: [isBid, t],
-          })),
-        });
-
-        const out: Level[] = [];
-        ticks.forEach((t, i) => {
-          const r = depths[i];
-          if (r.status === "success" && (r.result as bigint) > 0n) {
-            out.push({ tick: t, price: priceOf(t), size: r.result as bigint });
-          }
-        });
-        return out;
+        return ticks;
       };
 
-      const [bids, asks] = await Promise.all([walk(true), walk(false)]);
+      // One round-trip for both best ticks, then walk each side in parallel.
+      const [bestBid, bestAsk] = await client.multicall({
+        allowFailure: false,
+        contracts: [
+          { address: book, abi: bookAbi, functionName: "bestBid" },
+          { address: book, abi: bookAbi, functionName: "bestAsk" },
+        ],
+      }) as [number, number];
+
+      const [bidTicks, askTicks] = await Promise.all([
+        walkTicks(true, Number(bestBid)),
+        walkTicks(false, Number(bestAsk)),
+      ]);
+
+      // All level depths (both sides) in ONE multicall.
+      const all = [...bidTicks.map((t) => [true, t] as const), ...askTicks.map((t) => [false, t] as const)];
+      const depths = all.length
+        ? await client.multicall({
+            allowFailure: true,
+            contracts: all.map(([b, t]) => ({
+              address: book, abi: bookAbi, functionName: "levelDepth", args: [b, t],
+            })),
+          })
+        : [];
+
+      const bids: Level[] = [];
+      const asks: Level[] = [];
+      all.forEach(([b, t], i) => {
+        const r = depths[i];
+        if (r?.status === "success" && (r.result as bigint) > 0n) {
+          (b ? bids : asks).push({ tick: t, price: priceOf(t), size: r.result as bigint });
+        }
+      });
       return { bids, asks };
     },
   });
