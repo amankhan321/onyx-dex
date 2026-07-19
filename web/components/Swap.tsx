@@ -81,7 +81,10 @@ export function Swap() {
   const insufficient =
     address != null && payBalance != null && amountIn > 0n && amountIn > payBalance;
 
-  // Quoting is a view call. It costs nothing, so we do it on every keystroke.
+  // Quote: ONE multicall (quoter + AMM baseline together), debounced 350ms,
+  // and resilient — a transient RPC blip KEEPS the last good quote on screen
+  // instead of flashing "0.0000 + error". Only a quote that fails repeatedly
+  // for a NEW amount surfaces an error.
   useEffect(() => {
     let stale = false;
     if (!client || amountIn === 0n) {
@@ -89,29 +92,34 @@ export function Swap() {
       setAmmOnly(null);
       return;
     }
-    (async () => {
+    const timer = setTimeout(async () => {
       try {
-        const [q, a] = await Promise.all([
-          client.readContract({
-            address: ADDR.quoter as `0x${string}`,
-            abi: quoterAbi,
-            functionName: "quote",
-            args: [zeroForOne, amountIn, 16],
-          }),
-          client.readContract({
-            address: ADDR.pool as `0x${string}`,
-            abi: poolAbi,
-            functionName: "getDy",
-            args: [zeroForOne, amountIn],
-          }),
-        ]);
+        const [q, a] = (await client.multicall({
+          allowFailure: false,
+          contracts: [
+            {
+              address: ADDR.quoter as `0x${string}`,
+              abi: quoterAbi,
+              functionName: "quote",
+              args: [zeroForOne, amountIn, 16],
+            },
+            {
+              address: ADDR.pool as `0x${string}`,
+              abi: poolAbi,
+              functionName: "getDy",
+              args: [zeroForOne, amountIn],
+            },
+          ],
+        })) as [unknown, bigint];
         if (stale) return;
-        const r = q as unknown as Quote;
+        const r = q as Quote;
         setQuote({ ...r, limitTick: Number(r.limitTick) });
-        setAmmOnly(a as bigint);
+        setAmmOnly(a);
+        setStatus(null);
       } catch (e) {
-        if (!stale) {
-          setQuote(null);
+        if (stale) return;
+        // Keep last good quote through blips; only error if we have nothing.
+        if (!quote) {
           const m = e instanceof Error ? e.message : "quote failed";
           setStatus(
             m.includes("0xec30f4ab")
@@ -120,10 +128,12 @@ export function Swap() {
           );
         }
       }
-    })();
+    }, 350);
     return () => {
       stale = true;
+      clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, amountIn, zeroForOne]);
 
   async function onSwap() {
