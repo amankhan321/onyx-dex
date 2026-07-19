@@ -9,6 +9,8 @@ import { Swap } from "@/components/Swap";
 import { BookLadder } from "@/components/BookLadder";
 import { LimitPanel } from "@/components/LimitPanel";
 import { TwapPanel } from "@/components/TwapPanel";
+import { FaucetPanel } from "@/components/FaucetPanel";
+import { TxHistory } from "@/components/TxHistory";
 import { Rise, SlideIn, Stagger } from "@/components/Reveal";
 import { PanelBoundary } from "@/components/PanelBoundary";
 import { CountUp } from "@/components/CountUp";
@@ -17,7 +19,7 @@ import { usePool } from "@/lib/useBook";
 import { fmt } from "@/lib/contracts";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
-const TABS = ["Swap", "Make", "TWAP"] as const;
+const TABS = ["Swap", "Make", "TWAP", "Faucet"] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -52,7 +54,7 @@ export default function Page() {
               transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
               className="glass lift focus-halo scroll-mt-24 p-6"
             >
-              <div className="relative mb-6 grid grid-cols-3 gap-1 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1">
+              <div className="relative mb-6 grid grid-cols-4 gap-1 rounded-xl border border-[color:var(--line)] bg-black/[0.03] dark:bg-white/[0.025] p-1">
                 {TABS.map((t) => (
                   <button
                     key={t}
@@ -90,6 +92,7 @@ export default function Page() {
                 {tab === "Swap" && <Swap />}
                 {tab === "Make" && <LimitPanel />}
                 {tab === "TWAP" && <TwapPanel />}
+                {tab === "Faucet" && <FaucetPanel />}
               </motion.div>
             </motion.div>
           </Rise>
