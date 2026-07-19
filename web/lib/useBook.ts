@@ -33,28 +33,49 @@ const placedEvent = {
 // Event logs see everything ever placed; stale ticks cost nothing because the
 // depth check filters them (cancelled/filled levels read 0 and drop out).
 // Fault-tolerant: on any failure we keep the last set, worst case = today's UI.
-const BOOK_DEPLOY_BLOCK = 51_700_000n;
+// Recent window, chunked. A single getLogs over ~300k blocks is rejected by most
+// RPCs (silent failure -> far-tick levels never appear). We scan the last
+// LOOKBACK blocks in RPC-safe CHUNK pieces; any chunk that fails just
+// contributes fewer ticks, never a crash. Cached 30s.
+const LOOKBACK = 120_000n;
+const CHUNK = 9_000n;
 let eventTicks: { bids: number[]; asks: number[] } = { bids: [], asks: [] };
 let eventTicksAt = 0;
 
 async function discoverTicks(client: NonNullable<ReturnType<typeof usePublicClient>>) {
-  if (Date.now() - eventTicksAt < 30_000) return eventTicks;
+  if (Date.now() - eventTicksAt < 30_000 && (eventTicks.bids.length || eventTicks.asks.length)) {
+    return eventTicks;
+  }
   try {
-    const logs = await client.getLogs({
-      address: ADDR.book as `0x${string}`,
-      event: placedEvent,
-      fromBlock: BOOK_DEPLOY_BLOCK,
-      toBlock: "latest",
-    });
+    const latest = await client.getBlockNumber();
+    const start = latest > LOOKBACK ? latest - LOOKBACK : 0n;
+
+    const ranges: [bigint, bigint][] = [];
+    for (let from = start; from <= latest; from += CHUNK + 1n) {
+      const to = from + CHUNK > latest ? latest : from + CHUNK;
+      ranges.push([from, to]);
+    }
+
+    const results = await Promise.allSettled(
+      ranges.map(([from, to]) =>
+        client.getLogs({ address: ADDR.book as `0x${string}`, event: placedEvent, fromBlock: from, toBlock: to }),
+      ),
+    );
+
     const bids = new Set<number>();
     const asks = new Set<number>();
-    for (const l of logs) {
-      const a = l.args as { isBid?: boolean; tick?: number };
-      if (a.tick == null) continue;
-      (a.isBid ? bids : asks).add(Number(a.tick));
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue;
+      for (const l of r.value) {
+        const a = l.args as { isBid?: boolean; tick?: number };
+        if (a.tick == null) continue;
+        (a.isBid ? bids : asks).add(Number(a.tick));
+      }
     }
-    eventTicks = { bids: [...bids], asks: [...asks] };
-    eventTicksAt = Date.now();
+    if (bids.size || asks.size) {
+      eventTicks = { bids: [...bids], asks: [...asks] };
+      eventTicksAt = Date.now();
+    }
   } catch {
     /* keep last known set */
   }
