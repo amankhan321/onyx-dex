@@ -1,26 +1,28 @@
-import { createConfig, http } from "wagmi";
+import { createConfig, fallback, http } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { arcTestnet } from "./contracts";
 
+const DIRECT = "https://rpc.testnet.arc.network";
+const OPTS = { batch: false, retryCount: 2, retryDelay: 400, timeout: 12_000 } as const;
+
 /**
- * injected() covers MetaMask / OKX / Rabby / Phantom via EIP-6963.
- *
- * batch:false is REQUIRED — the Arc RPC intermittently drops batched eth_calls,
- * which surfaces as "HTTP request failed" on the swap quote (two reads that
- * viem would otherwise bundle). Stats survive because they use an explicit
- * Multicall3 call; the quote path does not, so batching must be off. retry +
- * timeout ride out transient blips.
+ * THE READ PATH, decided by evidence accumulated over the whole build:
+ * server-side calls to the Arc RPC have never failed once (keeper mined six
+ * consecutive setRates; every cast from two machines answers instantly), while
+ * BROWSER calls drop randomly — quotes, asks, bids failing in different
+ * combinations at different times. So browser reads go through our own
+ * same-origin /api/rpc proxy, which forwards server-side from Vercel/droplet —
+ * the reliable path — with the direct RPC as fallback. SSR reads go direct.
+ * Writes go through the connected wallet and never touch this.
  */
+const transport =
+  typeof window === "undefined"
+    ? http(DIRECT, OPTS)
+    : fallback([http(`${window.location.origin}/api/rpc`, OPTS), http(DIRECT, OPTS)]);
+
 export const wagmiConfig = createConfig({
   chains: [arcTestnet],
   connectors: [injected()],
-  transports: {
-    [arcTestnet.id]: http("https://rpc.testnet.arc.network", {
-      batch: false,
-      retryCount: 3,
-      retryDelay: 400,
-      timeout: 15_000,
-    }),
-  },
+  transports: { [arcTestnet.id]: transport },
   ssr: true,
 });

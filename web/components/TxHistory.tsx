@@ -14,6 +14,10 @@ import { ADDR, arcTestnet } from "@/lib/contracts";
  */
 type Entry = { kind: string; detail: string; tx: string; block: bigint };
 
+// Module-level cache: tab switches remount the panel; don't refire ~16 getLogs
+// each time. One fetch per wallet per 60s.
+const historyCache: Record<string, { rows: Entry[]; at: number }> = {};
+
 const swapEvent = {
   type: "event",
   name: "TakerSwap",
@@ -49,6 +53,11 @@ export function TxHistory() {
 
   useEffect(() => {
     if (!address || !client) return;
+    const cached = historyCache[address];
+    if (cached && Date.now() - cached.at < 60_000) {
+      setRows(cached.rows);
+      return;
+    }
     let alive = true;
     setLoading(true);
 
@@ -106,7 +115,11 @@ export function TxHistory() {
           }
         }
         out.sort((a, b) => Number(b.block - a.block));
-        if (alive) setRows(out.slice(0, 25));
+        if (alive) {
+          const rows25 = out.slice(0, 25);
+          historyCache[address] = { rows: rows25, at: Date.now() };
+          setRows(rows25);
+        }
       } catch {
         /* leave empty */
       } finally {
