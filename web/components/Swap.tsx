@@ -78,6 +78,14 @@ export function Swap() {
       ? nativeBal.value / 10n ** 12n // 18dec native -> 6dec compare
       : undefined
     : (eurcBal as bigint | undefined);
+  const balOf = (sym: string): string | null => {
+    const raw = sym === "USDC"
+      ? (nativeBal ? nativeBal.value / 10n ** 12n : undefined)   // native 18dec -> 6dec
+      : (eurcBal as bigint | undefined);                        // ERC20 6dec
+    if (raw == null) return null;
+    return (Number(raw) / 1e6).toLocaleString("en-US", { maximumFractionDigits: 4 });
+  };
+
   const insufficient =
     address != null && payBalance != null && amountIn > 0n && amountIn > payBalance;
 
@@ -176,7 +184,12 @@ export function Swap() {
     <div>
       <div className="inner p-4">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted">You pay</span>
+          <span className="text-[11px] text-muted">
+            You pay
+            {address && balOf(inSym) != null && (
+              <span className="ml-2 text-faint">bal {balOf(inSym)}</span>
+            )}
+          </span>
           <TokenPill sym={inSym} side="in" />
         </div>
         <input
@@ -200,7 +213,12 @@ export function Swap() {
 
       <div className="inner mt-4 p-4">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted">You receive</span>
+          <span className="text-[11px] text-muted">
+            You receive
+            {address && balOf(outSym) != null && (
+              <span className="ml-2 text-faint">bal {balOf(outSym)}</span>
+            )}
+          </span>
           <TokenPill sym={outSym} side="out" />
         </div>
         <div className="mt-2 font-mono text-[26px] tabular text-fg">
