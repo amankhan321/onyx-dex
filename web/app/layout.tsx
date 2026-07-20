@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-theme="light">
+    <html lang="en" data-theme="dark">
       <head>
         {/* Loaded via <link> rather than next/font so the build never needs
             network access to Google — it fetches in the browser instead. */}

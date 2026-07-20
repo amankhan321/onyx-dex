@@ -10,7 +10,7 @@ export function ThemeToggle() {
   useEffect(() => {
     const saved = localStorage.getItem("onyx-theme");
     // Default to LIGHT unless the user explicitly chose dark.
-    const isLight = saved !== "dark";
+    const isLight = saved === "light";
     setLight(isLight);
     document.documentElement.setAttribute("data-theme", isLight ? "light" : "dark");
   }, []);
