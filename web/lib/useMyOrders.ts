@@ -52,8 +52,12 @@ export function useMyOrders() {
         const live = stored.filter((_, i) => {
           const r = res[i];
           if (r.status !== "success") return true; // keep on read failure
-          const v = r.result as unknown as { active: boolean; baseAmount: bigint; baseFilled: bigint };
-          return v.active && v.baseAmount > v.baseFilled;
+          // viem returns public struct getters as a POSITIONAL array:
+          // [maker, tick, isBid, active, baseAmount, baseFilled, quoteEscrow, prev, next].
+          // Reading .active off that array was always undefined, so every order
+          // got pruned on load — the "vanishes on refresh" bug.
+          const v = r.result as unknown as [string, number, boolean, boolean, bigint, bigint, bigint, bigint, bigint];
+          return v[3] && v[4] > v[5];
         });
         if (alive) {
           setOrders(live);

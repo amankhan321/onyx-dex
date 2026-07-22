@@ -111,6 +111,7 @@ export const twapReadAbi = [
 ] as const;
 
 export const twapAbi = [
+  { type: "function", name: "cancelTwap", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [{ type: "uint256" }] },
   {
     type: "function",
     name: "createTwap",

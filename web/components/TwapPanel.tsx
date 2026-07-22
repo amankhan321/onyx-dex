@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAccount, useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
+import { decodeEventLog } from "viem";
 import { ADDR, arcTestnet, erc20Abi, parse, twapAbi } from "@/lib/contracts";
 
 /**
@@ -11,7 +12,8 @@ import { ADDR, arcTestnet, erc20Abi, parse, twapAbi } from "@/lib/contracts";
  * on-chain, so a hostile keeper can only decline, never force a bad fill.
  */
 type TwapOrder = {
-  id: string;
+  id: string; // tx hash (display)
+  twapId?: string; // on-chain id for cancel
   side: string;
   total: string;
   slices: number;
@@ -25,6 +27,42 @@ type TwapOrder = {
 export function TwapPanel() {
   const { address } = useAccount();
   const { writeContractAsync, isPending } = useWriteContract();
+  const client = usePublicClient({ chainId: arcTestnet.id });
+
+  const createdAbi = [{
+    type: "event", name: "TwapCreated",
+    inputs: [
+      { name: "id", type: "uint256", indexed: true },
+      { name: "owner", type: "address", indexed: true },
+      { name: "zeroForOne", type: "bool", indexed: false },
+      { name: "total", type: "uint256", indexed: false },
+      { name: "slices", type: "uint32", indexed: false },
+      { name: "interval", type: "uint32", indexed: false },
+    ],
+  }] as const;
+
+  async function cancelTwap(o: TwapOrder) {
+    if (o.twapId == null) return;
+    try {
+      setStatus("Cancelling…");
+      await writeContractAsync({
+        address: ADDR.twap as `0x${string}`,
+        abi: twapAbi,
+        functionName: "cancelTwap",
+        args: [BigInt(o.twapId)],
+        chainId: arcTestnet.id,
+      });
+      setTwapOrders((prev) => {
+        const next = prev.filter((x) => x.id !== o.id);
+        if (twapKey) localStorage.setItem(twapKey, JSON.stringify(next));
+        return next;
+      });
+      setStatus("Cancelled — remaining amount refunded");
+    } catch (e) {
+      const m = e instanceof Error ? e.message : "failed";
+      setStatus(m.split("\n")[0].slice(0, 90));
+    }
+  }
 
   const [zeroForOne, setZeroForOne] = useState(true);
   const [total, setTotal] = useState("4");
@@ -76,10 +114,25 @@ export function TwapPanel() {
         chainId: arcTestnet.id,
       });
 
+      let twapId: string | undefined;
+      try {
+        const receipt = await client!.waitForTransactionReceipt({ hash });
+        for (const log of receipt.logs) {
+          try {
+            const ev = decodeEventLog({ abi: createdAbi, data: log.data, topics: log.topics });
+            if (ev.eventName === "TwapCreated") {
+              twapId = String((ev.args as { id: bigint }).id);
+              break;
+            }
+          } catch {}
+        }
+      } catch {}
+
       setTwapOrders((prev) => {
         const next = [
           {
             id: hash,
+            twapId,
             side: `Sell ${inSym}`,
             total,
             slices: n,
@@ -153,7 +206,17 @@ export function TwapPanel() {
               <div key={o.id} className="inner p-3">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-medium text-fg">{o.side}</span>
-                  <span className="font-mono text-muted">{o.id.slice(0, 10)}…</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-mono text-muted">{o.id.slice(0, 10)}…</span>
+                    {o.twapId != null && (
+                      <button
+                        onClick={() => cancelTwap(o)}
+                        className="btn rounded-lg border border-rose/40 px-2.5 py-1 text-[11px] text-rose hover:bg-rose/10"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </span>
                 </div>
                 <div className="mt-2 flex flex-wrap justify-between gap-x-3 gap-y-1 font-mono text-[11px] text-faint">
                   <span>total {o.total}</span>
