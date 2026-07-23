@@ -14,8 +14,9 @@ export function BookLadder({ onMake }: { onMake?: () => void } = {}) {
   const { data: book } = useBook();
   const { data: pool } = usePool();
 
-  const bids = book?.bids ?? [];
-  const asks = book?.asks ?? [];
+  const DUST = 5_000; // < 0.005 units renders as 0.00 — hide, it reads as broken
+  const bids = (book?.bids ?? []).filter((l) => Number(l.size) >= DUST);
+  const asks = (book?.asks ?? []).filter((l) => Number(l.size) >= DUST);
 
   // Cumulative depth: asks accumulate upward from best ask, bids downward from
   // best bid — the standard exchange view where the bar shows liquidity
@@ -54,17 +55,19 @@ export function BookLadder({ onMake }: { onMake?: () => void } = {}) {
         {asks.length === 0 && <Empty>no asks resting</Empty>}
       </div>
 
-      {/* mid / spread strip */}
-      <div className="my-3 flex items-center justify-between rounded-[12px] border border-[color:var(--line)] bg-white/[0.025] px-3 py-2">
-        <span className="font-mono text-[11px] tabular text-fg">
-          {mid !== null ? mid.toFixed(5) : "—"}
-          <span className="ml-1.5 text-faint">mid</span>
+      {/* mid / spread strip — the terminal's anchor line */}
+      <div className="my-2.5 flex items-center justify-between border-y border-[color:var(--line)] bg-white/[0.02] px-2.5 py-2.5">
+        <span className="font-mono tabular">
+          <span className="text-lg font-semibold tracking-tight text-fg">
+            {mid !== null ? mid.toFixed(5) : "—"}
+          </span>
+          <span className="ml-2 text-[10px] uppercase tracking-[0.14em] text-faint">mid</span>
         </span>
         <span className="font-mono text-[11px] text-faint">
-          {spread !== null ? `spread ${(spread * 1e4).toFixed(1)} bps` : "one-sided"}
+          {spread !== null ? `${(spread * 1e4).toFixed(1)} bps` : "one-sided"}
         </span>
         {pool && (
-          <span className="font-mono text-[11px] tabular text-indigo">
+          <span className="rounded-md border border-indigo/30 bg-indigo/[0.08] px-2 py-1 font-mono text-[11px] tabular text-indigo">
             curve {pool.ammPrice.toFixed(5)}
           </span>
         )}
@@ -111,7 +114,10 @@ function Row({ d, side, maxCum }: { d: Depth; side: "bid" | "ask"; maxCum: numbe
   }, [level.size]);
 
   const tone = side === "bid" ? "text-mint" : "text-rose";
-  const depth = side === "bid" ? "bg-mint/[0.10]" : "bg-rose/[0.10]";
+  const depth =
+    side === "bid"
+      ? "bg-gradient-to-l from-mint/[0.22] via-mint/[0.10] to-transparent"
+      : "bg-gradient-to-l from-rose/[0.22] via-rose/[0.10] to-transparent";
 
   return (
     <motion.div
@@ -120,16 +126,16 @@ function Row({ d, side, maxCum }: { d: Depth; side: "bid" | "ask"; maxCum: numbe
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.22, ease: EASE }}
-      className={`row row-${side} grid cursor-default grid-cols-[1fr_auto_auto_auto] gap-x-5 rounded-[6px] px-2 py-[6px] font-mono text-xs tabular ${flash === "up" ? "flash-up" : flash === "down" ? "flash-down" : ""}`}
+      className={`row row-${side} relative grid cursor-default grid-cols-[1fr_auto_auto_auto] gap-x-5 rounded-[3px] px-2.5 py-[4px] font-mono text-xs tabular transition-colors hover:bg-white/[0.04] ${flash === "up" ? "flash-up" : flash === "down" ? "flash-down" : ""}`}
     >
       <motion.div
         layout
-        className={`absolute inset-y-0 right-0 rounded-[6px] ${depth}`}
+        className={`absolute inset-y-0 right-0 rounded-[3px] ${depth}`}
         initial={{ width: 0 }}
         animate={{ width: `${pct}%` }}
         transition={{ type: "spring", stiffness: 130, damping: 22 }}
       />
-      <span className={`relative ${tone}`}>{level.price.toFixed(5)}</span>
+      <span className={`relative font-medium ${tone}`}>{level.price.toFixed(5)}</span>
       <span className="relative text-right text-muted">{fmt(level.size, 2)}</span>
       <span className="relative text-right text-faint">{fmt(BigInt(Math.round(d.cum)), 2)}</span>
       <span className="relative text-right text-faint">
