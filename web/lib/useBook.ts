@@ -8,6 +8,12 @@ export type Level = { tick: number; price: number; size: bigint };
 export type Book = { bids: Level[]; asks: Level[] };
 
 const MAX_LEVELS = 12;
+// The walk is a CHAIN of sequential round trips (each next tick depends on the
+// previous), so its length directly sets first-paint latency. Strided discovery
+// already covers the whole range in ONE multicall, so the walk only needs to
+// guarantee the near-spread levels — 3 deep is plenty and cuts ~9 sequential
+// proxy hops off the initial load.
+const WALK_MAX = 3;
 
 /**
  * Walks the book straight off the chain — bestBid/bestAsk, then hops the tick
@@ -90,7 +96,7 @@ export function useBook(refetchMs = 5000) {
         const ticks: number[] = [];
         try {
           let tick = Number(await client.readContract({ address: book, abi: bookAbi, functionName: fnBest as never, args: [] as never }));
-          while (tick !== 0 && ticks.length < MAX_LEVELS) {
+          while (tick !== 0 && ticks.length < WALK_MAX) {
             ticks.push(tick);
             tick = Number(await client.readContract({ address: book, abi: bookAbi, functionName: fnNext as never, args: [tick] as never }));
           }

@@ -78,6 +78,10 @@ export function Swap() {
       ? nativeBal.value / 10n ** 12n // 18dec native -> 6dec compare
       : undefined
     : (eurcBal as bigint | undefined);
+  // First quote in flight: show a muted placeholder rather than a stark 0.0000,
+  // which reads as "the app returned zero" instead of "still loading".
+  const quotePending = amountIn > 0n && !quote && !status;
+
   const balOf = (sym: string): string | null => {
     const raw = sym === "USDC"
       ? (nativeBal ? nativeBal.value / 10n ** 12n : undefined)   // native 18dec -> 6dec
@@ -222,7 +226,13 @@ export function Swap() {
           <TokenPill sym={outSym} side="out" />
         </div>
         <div className="mt-2 font-mono text-[26px] tabular text-fg">
-          {quote ? fmt(quote.expectedOut) : "0.0000"}
+          {quote ? (
+            fmt(quote.expectedOut)
+          ) : quotePending ? (
+            <span className="inline-block h-[26px] w-32 animate-pulse rounded bg-white/10 align-middle" />
+          ) : (
+            "0.0000"
+          )}
         </div>
       </div>
 

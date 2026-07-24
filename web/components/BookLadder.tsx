@@ -11,7 +11,7 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 type Depth = { level: Level; cum: number };
 
 export function BookLadder({ onMake }: { onMake?: () => void } = {}) {
-  const { data: book } = useBook();
+  const { data: book, isLoading } = useBook();
   const { data: pool } = usePool();
 
   const DUST = 5_000; // < 0.005 units renders as 0.00 — hide, it reads as broken
@@ -52,7 +52,8 @@ export function BookLadder({ onMake }: { onMake?: () => void } = {}) {
             <Row key={`a${d.level.tick}`} d={d} side="ask" maxCum={maxCum} />
           ))}
         </AnimatePresence>
-        {asks.length === 0 && <Empty>no asks resting</Empty>}
+        {asks.length === 0 &&
+          (isLoading && !book ? <Skeleton rows={3} side="ask" /> : <Empty>no asks resting</Empty>)}
       </div>
 
       {/* mid / spread strip — the terminal's anchor line */}
@@ -79,7 +80,8 @@ export function BookLadder({ onMake }: { onMake?: () => void } = {}) {
             <Row key={`b${d.level.tick}`} d={d} side="bid" maxCum={maxCum} />
           ))}
         </AnimatePresence>
-        {bids.length === 0 && (
+        {bids.length === 0 && isLoading && !book && <Skeleton rows={3} side="bid" />}
+        {bids.length === 0 && !(isLoading && !book) && (
           <div className="px-2 py-4 text-center">
             <div className="font-mono text-[11px] text-faint">no bids resting</div>
             {onMake && (
@@ -142,6 +144,26 @@ function Row({ d, side, maxCum }: { d: Depth; side: "bid" | "ask"; maxCum: numbe
         {((Number(level.size) / 1e6) * level.price).toFixed(2)}
       </span>
     </motion.div>
+  );
+}
+
+/** Shimmer placeholder rows — reads as "loading", not "empty/broken". */
+function Skeleton({ rows, side }: { rows: number; side: "bid" | "ask" }) {
+  return (
+    <div className="space-y-[1px]">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          className="grid grid-cols-[1fr_auto_auto_auto] gap-x-5 rounded-[3px] px-2.5 py-[4px]"
+          style={{ opacity: 1 - i * 0.22 }}
+        >
+          <span className={`h-3 w-16 animate-pulse rounded ${side === "bid" ? "bg-mint/15" : "bg-rose/15"}`} />
+          <span className="h-3 w-10 animate-pulse justify-self-end rounded bg-white/10" />
+          <span className="h-3 w-10 animate-pulse justify-self-end rounded bg-white/[0.07]" />
+          <span className="h-3 w-10 animate-pulse justify-self-end rounded bg-white/[0.07]" />
+        </div>
+      ))}
+    </div>
   );
 }
 
