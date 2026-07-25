@@ -23,7 +23,7 @@ export function BotDock() {
             exit={{ opacity: 0, y: -18, scale: 0.94 }}
             transition={{ type: "spring", stiffness: 260, damping: 26 }}
             style={{ transformOrigin: "top left" }}
-            className="glass fixed bottom-24 left-4 z-50 max-h-[74vh] w-[calc(100vw-2rem)] overflow-y-auto p-5 shadow-2xl sm:w-[380px] lg:bottom-auto lg:left-8 lg:top-[256px]"
+            className="glass fixed bottom-24 left-4 z-50 max-h-[74vh] w-[calc(100vw-2rem)] overflow-y-auto p-5 shadow-2xl sm:w-[380px] lg:bottom-auto lg:left-8 lg:top-[180px]"
           >
             <button
               onClick={() => setOpen(false)}
@@ -42,7 +42,7 @@ export function BotDock() {
         whileHover={{ scale: 1.06 }}
         whileTap={{ scale: 0.95 }}
         aria-label={open ? "Close trading bot" : "Open trading bot"}
-        className="cta fixed bottom-6 left-5 z-40 flex items-center gap-2 rounded-full bg-indigo px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(94,106,210,0.45)] ring-1 ring-white/15 lg:bottom-auto lg:left-8 lg:top-[200px]"
+        className="fixed bottom-6 left-5 z-40 flex items-center gap-2 rounded-full bg-indigo px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(94,106,210,0.45)] ring-1 ring-white/15 transition-transform hover:-translate-y-0.5 lg:bottom-auto lg:left-8 lg:top-[124px]"
       >
         <Bot size={16} />
         <span className="hidden sm:inline">Trading bot</span>
