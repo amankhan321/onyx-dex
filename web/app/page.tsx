@@ -11,7 +11,6 @@ import { LimitPanel } from "@/components/LimitPanel";
 import { TwapPanel } from "@/components/TwapPanel";
 import { FaucetPanel } from "@/components/FaucetPanel";
 import { LiquidityPanel } from "@/components/LiquidityPanel";
-import { BotDock } from "@/components/BotDock";
 import { TxHistory } from "@/components/TxHistory";
 import { Rise, SlideIn, Stagger } from "@/components/Reveal";
 import { PanelBoundary } from "@/components/PanelBoundary";
@@ -201,8 +200,7 @@ export default function Page() {
             </div>
           </Rise>
         </Stagger>
-            <BotDock />
-    </main>
+          </main>
     </>
   );
 }

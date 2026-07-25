@@ -2,6 +2,7 @@
 
 import { useTicker } from "@/lib/ticker";
 import { usePool } from "@/lib/useBook";
+import { BotDock } from "./BotDock";
 
 /**
  * The moving tape across the top. Labelled MARKET, hard left, so it is
@@ -18,6 +19,8 @@ export function Ticker() {
         <span className="h-1 w-1 animate-pulse rounded-full bg-amber-400" />
         Market
       </span>
+
+      <BotDock />
 
       <div className="flex flex-1 items-center gap-6 overflow-x-auto scrollbar-none">
         {pool && (
