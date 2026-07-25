@@ -13,6 +13,7 @@ import { FaucetPanel } from "@/components/FaucetPanel";
 import { LiquidityPanel } from "@/components/LiquidityPanel";
 import { TxHistory } from "@/components/TxHistory";
 import { Rise, SlideIn, Stagger } from "@/components/Reveal";
+import { BotDock } from "@/components/BotDock";
 import { PanelBoundary } from "@/components/PanelBoundary";
 import { CountUp } from "@/components/CountUp";
 import { Float } from "@/components/Reveal";
@@ -200,7 +201,8 @@ export default function Page() {
             </div>
           </Rise>
         </Stagger>
-          </main>
+        <BotDock />
+    </main>
     </>
   );
 }
