@@ -191,7 +191,7 @@ export function Swap() {
           <span className="text-[11px] text-muted">
             You pay
             {address && balOf(inSym) != null && (
-              <span className="ml-2 text-faint">bal {balOf(inSym)}</span>
+              <span className="ml-2 text-muted">bal <span className="text-fg/80">{balOf(inSym)}</span></span>
             )}
           </span>
           <TokenPill sym={inSym} side="in" />
@@ -203,6 +203,24 @@ export function Swap() {
           placeholder="0.00"
           className="mt-2 w-full bg-transparent font-mono text-[26px] tabular text-fg outline-none placeholder:text-faint/40"
         />
+        {address && balOf(inSym) != null && (
+          <div className="mt-3 flex gap-1.5">
+            {[0.25, 0.5, 1].map((f) => (
+              <button
+                key={f}
+                onClick={() => {
+                  const b = Number(balOf(inSym)!.replace(/,/g, ""));
+                  // leave a hair of USDC for gas when spending the gas token
+                  const usable = inSym === "USDC" ? Math.max(0, b - 0.01) : b;
+                  setAmount((usable * f).toFixed(4).replace(/\.?0+$/, ""));
+                }}
+                className="btn rounded-lg border border-[color:var(--line)] px-2.5 py-1 text-[11px] font-medium text-muted hover:border-indigo/40 hover:text-fg"
+              >
+                {f === 1 ? "MAX" : `${f * 100}%`}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="relative h-0">
@@ -220,7 +238,7 @@ export function Swap() {
           <span className="text-[11px] text-muted">
             You receive
             {address && balOf(outSym) != null && (
-              <span className="ml-2 text-faint">bal {balOf(outSym)}</span>
+              <span className="ml-2 text-muted">bal <span className="text-fg/80">{balOf(outSym)}</span></span>
             )}
           </span>
           <TokenPill sym={outSym} side="out" />

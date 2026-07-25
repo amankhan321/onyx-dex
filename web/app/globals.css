@@ -417,9 +417,10 @@ body::before {
 }
 .popup-card:hover::before { opacity: 1; }
 .popup-card .stat-value {
-  font-size: 1.2rem;
-  font-weight: 500;
-  text-shadow: 0 0 22px rgba(174, 246, 207, 0.16);
+  font-size: 1.28rem;
+  font-weight: 600;
+  color: #f4f6ff;
+  text-shadow: 0 0 22px rgba(174, 246, 207, 0.2);
 }
 [data-theme="light"] .popup-card {
   border-color: rgba(20, 22, 45, 0.08);
