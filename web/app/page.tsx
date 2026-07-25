@@ -54,18 +54,18 @@ export default function Page() {
               transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
               className="glass lift focus-halo scroll-mt-24 p-6"
             >
-              <div className="relative mb-6 grid grid-cols-4 gap-1 rounded-xl border border-[color:var(--line)] bg-black/[0.03] dark:bg-white/[0.025] p-1">
+              <div className="glass relative mb-5 grid grid-cols-4 gap-1 rounded-2xl border border-[color:var(--line)] p-1.5 shadow-lg">
                 {TABS.map((t) => (
                   <button
                     key={t}
                     onClick={() => setTab(t)}
-                    className="relative rounded-[9px] py-1.5 text-xs font-medium"
+                    className="relative rounded-xl py-2.5 text-sm font-semibold tracking-tight"
                   >
                     {tab === t && (
                       <motion.span
                         layoutId="tab-pill"
                         transition={{ type: "spring", stiffness: 380, damping: 32 }}
-                        className="absolute inset-0 rounded-[9px] bg-indigo/[0.22]"
+                        className="absolute inset-0 rounded-xl bg-indigo/[0.22]"
                       />
                     )}
                     <span
