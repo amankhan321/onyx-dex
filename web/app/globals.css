@@ -419,7 +419,7 @@ body::before {
 .popup-card .stat-value {
   font-size: 1.28rem;
   font-weight: 600;
-  color: #f4f6ff;
+  color: var(--fg);
   text-shadow: 0 0 22px rgba(174, 246, 207, 0.2);
 }
 [data-theme="light"] .popup-card {
