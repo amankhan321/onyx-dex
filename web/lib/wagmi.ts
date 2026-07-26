@@ -1,5 +1,6 @@
 import { createConfig, fallback, http } from "wagmi";
 import { injected } from "wagmi/connectors";
+import { arbitrumSepolia, baseSepolia, sepolia } from "wagmi/chains";
 import { arcTestnet } from "./contracts";
 
 const DIRECT = "https://rpc.testnet.arc.network";
@@ -21,8 +22,15 @@ const transport =
     : fallback([http(`${window.location.origin}/api/rpc`, OPTS), http(DIRECT, OPTS)]);
 
 export const wagmiConfig = createConfig({
-  chains: [arcTestnet],
+  chains: [arcTestnet, baseSepolia, sepolia, arbitrumSepolia],
   connectors: [injected()],
-  transports: { [arcTestnet.id]: transport },
+  // Arc keeps the proxy-first transport; CCTP destinations use public RPCs and
+  // are only touched when a user claims a bridged transfer there.
+  transports: {
+    [arcTestnet.id]: transport,
+    [baseSepolia.id]: http(),
+    [sepolia.id]: http(),
+    [arbitrumSepolia.id]: http(),
+  },
   ssr: true,
 });
