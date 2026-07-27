@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck-flowbot:
+    name: Typecheck — flowbot
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: flowbot
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: flowbot/package-lock.json
+
+      # npm ci uses the committed lockfile, so CI matches what was typechecked.
+      # better-sqlite3 compiles a native module, hence a full install.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  typecheck-web:
+    name: Typecheck — web (Onyx + Mini App)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # tsc alone rather than a full next build: fastest signal, and it catches
+      # the class of error that would otherwise reach production.
+      - name: Typecheck
+        run: npx tsc --noEmit

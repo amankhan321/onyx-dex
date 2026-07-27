@@ -12,5 +12,10 @@ out/
 
 # Dotenv file
 .env
-.env
-.github/
+
+# Dependencies — never commit these
+node_modules/
+
+# Build output
+.next/
+dist/
