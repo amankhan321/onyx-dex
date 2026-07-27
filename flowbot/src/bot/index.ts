@@ -49,6 +49,13 @@ const tradingCtx: Ctx = {
   },
 };
 
+const transferCtx = {
+  client,
+  chainId: config.arc.chainId,
+  decimals: config.tokens.decimals,
+  tokens: { usdc: config.tokens.usdc, eurc: config.tokens.eurc },
+};
+
 /** Per-user token bucket. Cheap, in-memory, enough to stop obvious abuse. */
 const buckets = new Map<number, { tokens: number; ts: number }>();
 function allowed(id: number): boolean {
@@ -86,7 +93,7 @@ export function createBot() {
   registerStart(bot);
   registerTrade(bot, () => tradingCtx);
   registerPortfolio(bot, () => tradingCtx);
-  registerTransfer(bot);
+  registerTransfer(bot, () => transferCtx);
   registerSettings(bot);
 
   // Never leak an internal error to a user, and never log one that might carry

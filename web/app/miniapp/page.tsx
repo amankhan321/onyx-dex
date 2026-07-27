@@ -26,7 +26,15 @@ import { arcTestnet } from "@/lib/contracts";
  * before anything is signed.
  */
 
-type Unsigned = { to: Hex; data: Hex; value: string; chainId: number; summary: string };
+type Unsigned = {
+  to: Hex;
+  data: Hex;
+  value: string;
+  chainId: number;
+  summary: string;
+  /** Whole-token value moved, used for the less-secure-storage cap. */
+  capValue?: number;
+};
 type Stage = "loading" | "onboard" | "backup" | "confirm-backup" | "ready" | "signing" | "done";
 
 /**
@@ -136,9 +144,10 @@ export default function MiniApp() {
     setStage("signing");
     try {
       // Cap applies only while on the degraded storage path.
-      if (mode_ === "fallback" && FALLBACK_MAX_VALUE > 0) {
-        const amt = Number(tx.summary.match(/([\d.]+)/)?.[1] ?? 0);
-        if (amt > FALLBACK_MAX_VALUE) {
+      // Uses the explicit capValue the builder attached — regex-parsing a human
+      // summary would silently mis-cap the moment the wording changed.
+      if (mode_ === "fallback" && FALLBACK_MAX_VALUE > 0 && tx.capValue != null) {
+        if (tx.capValue > FALLBACK_MAX_VALUE) {
           throw new Error(
             `Capped at ${FALLBACK_MAX_VALUE} USDC while using less-secure storage. ` +
               `Update Telegram to lift this.`,

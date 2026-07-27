@@ -15,6 +15,7 @@ export function encodeTx(tx: UnsignedTx): string {
     value: tx.value.toString(),
     chainId: tx.chainId,
     summary: tx.summary,
+    capValue: tx.capValue,
   });
   return Buffer.from(json, "utf8")
     .toString("base64")

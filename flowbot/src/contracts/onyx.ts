@@ -27,6 +27,13 @@ export type UnsignedTx = {
   chainId: number;
   /** Human-readable summary for the confirmation screen. */
   summary: string;
+  /**
+   * Value moved, in whole token units, for client-side policy checks (the
+   * Mini App's less-secure-storage cap). Optional: absent means "not a simple
+   * value transfer", and the client should treat it as uncapped rather than
+   * guessing from the summary text.
+   */
+  capValue?: number;
 };
 
 export type OnyxAddresses = {
@@ -218,6 +225,7 @@ export function buildMarketSwap(
       `Swap ${fmtUnits(quote.amountIn, ctx.decimals)} ${inSym} → ` +
       `~${fmtUnits(quote.expectedOut, ctx.decimals)} ${outSym} ` +
       `(min ${fmtUnits(minOut, ctx.decimals)})`,
+    capValue: Number(quote.amountIn) / 10 ** ctx.decimals,
   };
 }
 
