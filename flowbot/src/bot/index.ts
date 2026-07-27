@@ -10,6 +10,7 @@
 import { Telegraf } from "telegraf";
 import { createPublicClient, defineChain, http } from "viem";
 import { config } from "../config";
+import { assertConfigOrExit } from "../config/validate";
 import { initDb } from "../db";
 import { registerStart } from "./handlers/start";
 import { registerTrade } from "./handlers/trade";
@@ -122,9 +123,15 @@ export function createBot() {
 }
 
 if (require.main === module) {
-  const bot = createBot();
-  void bot.launch();
-  console.log("[bot] running");
-  process.once("SIGINT", () => bot.stop("SIGINT"));
-  process.once("SIGTERM", () => bot.stop("SIGTERM"));
+  // Validate BEFORE touching Telegram or the chain. A wrong RPC or chain id
+  // doesn't error, it succeeds on the wrong network — so refuse to start.
+  void assertConfigOrExit().then(() => {
+    const bot = createBot();
+    void bot.launch();
+    console.log("[bot] running");
+    process.once("SIGINT", () => bot.stop("SIGINT"));
+    process.once("SIGTERM", () => bot.stop("SIGTERM"));
+  });
 }
+
+
