@@ -62,3 +62,16 @@ CREATE TABLE IF NOT EXISTS trades (
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_user ON trades(telegram_id, created_at DESC);
+
+-- User-set price alerts. Non-sensitive: a threshold and a direction.
+CREATE TABLE IF NOT EXISTS price_alerts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  telegram_id  INTEGER NOT NULL,
+  direction    TEXT    NOT NULL,          -- 'above' | 'below'
+  price        TEXT    NOT NULL,          -- EURC per USDC, as typed
+  created_at   INTEGER NOT NULL,
+  triggered_at INTEGER,                   -- set once fired; kept for history
+  FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_active ON price_alerts(triggered_at, telegram_id);

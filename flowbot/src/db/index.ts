@@ -149,3 +149,38 @@ export function referralCount(telegramId: number): number {
   const r = db.prepare(`SELECT COUNT(*) as n FROM users WHERE referred_by = ?`).get(telegramId) as { n: number };
   return r.n;
 }
+
+export type PriceAlert = {
+  id: number;
+  telegramId: number;
+  direction: "above" | "below";
+  price: number;
+};
+
+export function addAlert(telegramId: number, direction: "above" | "below", price: number) {
+  db.prepare(
+    `INSERT INTO price_alerts (telegram_id, direction, price, created_at) VALUES (?, ?, ?, ?)`,
+  ).run(telegramId, direction, String(price), Date.now());
+}
+
+export function activeAlerts(telegramId?: number): PriceAlert[] {
+  const rows = telegramId
+    ? db
+        .prepare(`SELECT * FROM price_alerts WHERE triggered_at IS NULL AND telegram_id = ?`)
+        .all(telegramId)
+    : db.prepare(`SELECT * FROM price_alerts WHERE triggered_at IS NULL`).all();
+  return (rows as Record<string, unknown>[]).map((r) => ({
+    id: r.id as number,
+    telegramId: r.telegram_id as number,
+    direction: r.direction as "above" | "below",
+    price: Number(r.price),
+  }));
+}
+
+export function markAlertTriggered(id: number) {
+  db.prepare(`UPDATE price_alerts SET triggered_at = ? WHERE id = ?`).run(Date.now(), id);
+}
+
+export function deleteAlert(telegramId: number, id: number) {
+  db.prepare(`DELETE FROM price_alerts WHERE id = ? AND telegram_id = ?`).run(id, telegramId);
+}

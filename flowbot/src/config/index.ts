@@ -74,6 +74,16 @@ export const config = {
     redisUrl: process.env.REDIS_URL ?? "",
   },
 
+  referral: {
+    /**
+     * Share of trading fees credited to a referrer, in bps. Default 0 (off).
+     * NOTE: this is tracking only — Onyx's Router takes no referrer parameter,
+     * so paying it out needs either contract support or a separate transfer.
+     * Do not advertise a share that isn't actually paid.
+     */
+    feeBps: num("REFERRAL_FEE_BPS", 0),
+  },
+
   limits: {
     maxSlippageBps: num("MAX_SLIPPAGE_BPS", 300),
     highImpactWarnBps: num("HIGH_IMPACT_WARN_BPS", 100),

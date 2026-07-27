@@ -16,6 +16,9 @@ import { registerTrade } from "./handlers/trade";
 import { registerPortfolio } from "./handlers/portfolio";
 import { registerTransfer } from "./handlers/transfer";
 import { registerSettings } from "./handlers/settings";
+import { registerLimit } from "./handlers/limit";
+import { registerTwap } from "./handlers/twap";
+import { registerAlerts } from "./handlers/alerts";
 import { startFillWatcher } from "../services/notifications";
 import type { Ctx } from "../contracts/onyx";
 
@@ -94,6 +97,9 @@ export function createBot() {
   registerTrade(bot, () => tradingCtx);
   registerPortfolio(bot, () => tradingCtx);
   registerTransfer(bot, () => transferCtx);
+  registerLimit(bot, () => tradingCtx);
+  registerTwap(bot, () => tradingCtx);
+  registerAlerts(bot);
   registerSettings(bot);
 
   // Never leak an internal error to a user, and never log one that might carry
@@ -107,6 +113,8 @@ export function createBot() {
     bot,
     client,
     orderBook: config.onyx.orderBook,
+    stableSwap: config.onyx.stableSwap,
+    decimals: config.tokens.decimals,
     explorer: config.arc.explorer,
   });
 

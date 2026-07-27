@@ -3,6 +3,11 @@
 Button-driven trading (BONKbot-style UX) routed through **Onyx**, the hybrid
 CLOB + StableSwap DEX on Arc.
 
+> **Housekeeping — rotate the GitHub token when the build is done.**
+> The PAT used to push this repo now carries `workflow` scope, meaning anything
+> holding it can execute arbitrary code in CI. It has also been reused across
+> many sessions. Revoke and reissue it once active development stops.
+
 ## Security model — read this first
 
 FlowBot is **self-custodial**, and the architecture is what makes that true

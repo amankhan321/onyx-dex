@@ -1,5 +1,6 @@
 import type { Telegraf } from "telegraf";
 import { backKeyboard, mainMenu } from "../keyboards";
+import { ordersKeyboard } from "./limit";
 import { getUser, openOrders, recentTrades, referralCount } from "../../db";
 import { erc20Abi } from "../../contracts/abis";
 import { fmtUnits, type Ctx } from "../../contracts/onyx";
@@ -22,7 +23,9 @@ export function registerPortfolio(bot: Telegraf, ctxOf: () => Ctx) {
         `*Positions*\n\n` +
           `USDC: ${fmtUnits(usdc, ctx.decimals)}\n` +
           `EURC: ${fmtUnits(eurc, ctx.decimals)}\n\n` +
-          `\`${user.address}\``,
+          `\`${user.address}\`\n\n` +
+          `_Balances only. PnL needs a cost basis recorded from your first trade ` +
+          `onward — showing one now would be guesswork._`,
         { parse_mode: "Markdown", ...backKeyboard() },
       );
     } catch {
@@ -39,10 +42,10 @@ export function registerPortfolio(bot: Telegraf, ctxOf: () => Ctx) {
     const lines = orders
       .map((o) => `• ${o.side === "bid" ? "Buy" : "Sell"} ${o.size} @ ${o.price} — #${o.orderId}`)
       .join("\n");
-    await c.editMessageText(`*Open orders*\n\n${lines}`, {
-      parse_mode: "Markdown",
-      ...backKeyboard(),
-    });
+    await c.editMessageText(
+      `*Open orders*\n\n${lines}\n\n_Tap one to cancel — you'll sign it on your device._`,
+      { parse_mode: "Markdown", ...ordersKeyboard(c.from.id) },
+    );
   });
 
   bot.action("history", async (c) => {

@@ -7,7 +7,9 @@ import type { UnsignedTx } from "../contracts/onyx";
 export const mainMenu = () =>
   Markup.inlineKeyboard([
     [Markup.button.callback("🟢 Buy", "buy"), Markup.button.callback("🔴 Sell", "sell")],
+    [Markup.button.callback("🎯 Limit", "limit"), Markup.button.callback("⏱ TWAP", "twap")],
     [Markup.button.callback("📊 Positions", "positions"), Markup.button.callback("📋 Orders", "orders")],
+    [Markup.button.callback("🔔 Alerts", "alerts"), Markup.button.callback("🤝 Referral", "referral")],
     [Markup.button.callback("⬇️ Deposit", "deposit"), Markup.button.callback("⬆️ Withdraw", "withdraw")],
     [Markup.button.callback("⚙️ Settings", "settings"), Markup.button.callback("❓ Help", "help")],
   ]);
