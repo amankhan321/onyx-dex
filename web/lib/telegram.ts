@@ -41,6 +41,26 @@ export function tg(): TgWebApp | null {
 
 export const inTelegram = () => tg() !== null;
 
+/**
+ * Which storage the encrypted blob will actually land in.
+ *
+ *  "secure"   — Telegram SecureStorage (Bot API 9.0+). OS-backed, isolated per
+ *               app, survives reinstall via restoreItem. The intended path.
+ *  "fallback" — plain localStorage, because the client is too old to expose
+ *               SecureStorage (or we're in a normal browser). Readable by any
+ *               script that runs on this origin and wiped by a routine
+ *               "clear browsing data". Degraded, and the UI must say so.
+ *
+ * Deliberately a runtime probe rather than a version check: what matters is
+ * whether the API is actually there.
+ */
+export type StorageMode = "secure" | "fallback";
+
+export function storageMode(): StorageMode {
+  const app = tg();
+  return app?.SecureStorage ? "secure" : "fallback";
+}
+
 const KEYSTORE_KEY = "onyx_keystore_v1";
 
 /** Promise wrapper — Telegram's storage API is callback-style. */

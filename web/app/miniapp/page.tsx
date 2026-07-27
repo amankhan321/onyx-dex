@@ -10,7 +10,7 @@ import {
   withUnlocked,
   type EncryptedKeystore,
 } from "@/lib/keystore";
-import { clearKeystore, inTelegram, loadKeystore, saveKeystore, tg } from "@/lib/telegram";
+import { clearKeystore, loadKeystore, saveKeystore, storageMode, tg } from "@/lib/telegram";
 import { arcTestnet } from "@/lib/contracts";
 
 /**
@@ -29,6 +29,14 @@ import { arcTestnet } from "@/lib/contracts";
 type Unsigned = { to: Hex; data: Hex; value: string; chainId: number; summary: string };
 type Stage = "loading" | "onboard" | "backup" | "confirm-backup" | "ready" | "signing" | "done";
 
+/**
+ * Cap on what may be signed while the blob sits in the weaker fallback store.
+ * A downgraded client shouldn't quietly end up guarding large balances. Set
+ * NEXT_PUBLIC_FALLBACK_MAX_VALUE to "0" to disable the cap entirely.
+ */
+const FALLBACK_MAX_VALUE = Number(process.env.NEXT_PUBLIC_FALLBACK_MAX_VALUE ?? "100");
+const ACK_KEY = "onyx_fallback_ack_v1";
+
 export default function MiniApp() {
   const [stage, setStage] = useState<Stage>("loading");
   const [keystore, setKeystore] = useState<EncryptedKeystore | null>(null);
@@ -43,6 +51,8 @@ export default function MiniApp() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [mode_, setStorage] = useState<"secure" | "fallback">("secure");
+  const [ackedFallback, setAcked] = useState(false);
 
   // Boot: tell Telegram we're ready, parse any pending tx, load the blob.
   useEffect(() => {
@@ -58,6 +68,16 @@ export default function MiniApp() {
       }
     } catch {
       setError("That transaction link is malformed. Go back to the bot and try again.");
+    }
+
+    const sm = storageMode();
+    setStorage(sm);
+    if (sm === "fallback") {
+      try {
+        setAcked(localStorage.getItem(ACK_KEY) === "1");
+      } catch {
+        setAcked(false);
+      }
     }
 
     void (async () => {
@@ -115,6 +135,16 @@ export default function MiniApp() {
     setBusy(true);
     setStage("signing");
     try {
+      // Cap applies only while on the degraded storage path.
+      if (mode_ === "fallback" && FALLBACK_MAX_VALUE > 0) {
+        const amt = Number(tx.summary.match(/([\d.]+)/)?.[1] ?? 0);
+        if (amt > FALLBACK_MAX_VALUE) {
+          throw new Error(
+            `Capped at ${FALLBACK_MAX_VALUE} USDC while using less-secure storage. ` +
+              `Update Telegram to lift this.`,
+          );
+        }
+      }
       const hash = await withUnlocked(keystore, unlockPassword, async (w) => {
         const wallet = createWalletClient({
           account: w.account,
@@ -156,11 +186,18 @@ export default function MiniApp() {
         </span>
       </header>
 
-      {!inTelegram() && (
+      {mode_ === "fallback" && (
         <Note tone="warn">
-          Opened outside Telegram, so the encrypted wallet is stored in this browser
-          instead of Telegram&apos;s SecureStorage. Fine for testing — open from the bot
-          for the real thing.
+          <strong>Less-secure storage in use.</strong> Your encrypted key is being kept in
+          this browser&apos;s local storage instead of Telegram&apos;s SecureStorage,
+          because this Telegram version doesn&apos;t provide it. That means any script
+          running on this page&apos;s domain could read the encrypted file, and clearing
+          your browsing data will delete it — losing the wallet unless you still have your
+          recovery phrase. It stays encrypted with your password either way.{" "}
+          <strong>Update Telegram to move to secure device storage.</strong>
+          {FALLBACK_MAX_VALUE > 0 && (
+            <> Signing is capped at {FALLBACK_MAX_VALUE} USDC per transaction until you do.</>
+          )}
         </Note>
       )}
 
@@ -172,7 +209,35 @@ export default function MiniApp() {
         </div>
       )}
 
-      {stage === "onboard" && (
+      {stage === "onboard" && mode_ === "fallback" && !ackedFallback && (
+        <section className="glass p-5">
+          <h1 className="text-base font-medium text-fg">Continue with weaker storage?</h1>
+          <p className="mt-2 text-xs leading-relaxed text-faint">
+            Telegram&apos;s secure storage isn&apos;t available here, so your encrypted key
+            would be saved in ordinary browser storage on this device. It stays encrypted
+            with your password, but it is easier for other code on this domain to read and
+            it disappears if you clear browsing data.
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-faint">
+            The safer option is to update Telegram and reopen this from the bot.
+          </p>
+          <button
+            onClick={() => {
+              try {
+                localStorage.setItem(ACK_KEY, "1");
+              } catch {
+                /* proceeding regardless is the user's choice */
+              }
+              setAcked(true);
+            }}
+            className="cta mt-4 w-full bg-indigo py-2.5 text-sm font-semibold text-white"
+          >
+            I understand, continue anyway
+          </button>
+        </section>
+      )}
+
+      {stage === "onboard" && (mode_ === "secure" || ackedFallback) && (
         <section className="glass p-5">
           <h1 className="text-base font-medium text-fg">Set up your wallet</h1>
           <p className="mt-1 text-xs leading-relaxed text-faint">
