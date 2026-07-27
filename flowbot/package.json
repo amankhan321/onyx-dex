@@ -7,7 +7,8 @@
     "dev": "tsx watch src/bot/index.ts",
     "start": "node dist/bot/index.js",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check-config": "node scripts/check-config.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",

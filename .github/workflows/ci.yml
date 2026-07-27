@@ -33,6 +33,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # The bot and the DEX must point at the same contracts on the same chain.
+      # Drift between them doesn't error at runtime — the bot would just quote a
+      # different deployment than the site shows — so it's caught here instead.
+      - name: Config matches live Onyx deployment
+        run: npm run check-config
+
   typecheck-web:
     name: Typecheck — web (Onyx + Mini App)
     runs-on: ubuntu-latest
