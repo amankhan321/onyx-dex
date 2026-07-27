@@ -1,4 +1,4 @@
-import type { Telegraf } from "telegraf";
+import type { Context, Markup, Telegraf } from "telegraf";
 import { amountKeyboard, confirmKeyboard, mainMenu, walletSetupKeyboard } from "../keyboards";
 import { getSettings, getUser, recordTrade } from "../../db";
 import { fmtUnits, planMarketSwap, type Ctx } from "../../contracts/onyx";
@@ -54,12 +54,15 @@ export function registerTrade(bot: Telegraf, ctxOf: () => Ctx) {
   });
 }
 
+type Keyboard = ReturnType<typeof Markup.inlineKeyboard>;
+
 async function quoteAndConfirm(
-  c: Parameters<Parameters<Telegraf["action"]>[1]>[0],
+  c: Context,
   side: "buy" | "sell",
   amount: number | "max",
   ctxOf: () => Ctx,
 ) {
+  if (!c.from) return;
   const user = getUser(c.from.id);
   if (!user?.address) return;
 
@@ -129,14 +132,19 @@ async function maxBalance(ctx: Ctx, owner: `0x${string}`, zeroForOne: boolean): 
   return zeroForOne && bal > 10_000n ? bal - 10_000n : bal;
 }
 
-async function reply(
-  c: { editMessageText?: (t: string, e?: unknown) => Promise<unknown>; replyWithMarkdown: (t: string, e?: unknown) => Promise<unknown> },
-  text: string,
-  keyboard: unknown,
-) {
-  try {
-    await c.editMessageText?.(text, { parse_mode: "Markdown", ...(keyboard as object) });
-  } catch {
-    await c.replyWithMarkdown(text, keyboard);
+/**
+ * Edit the existing message when we arrived from a button, otherwise send a new
+ * one. Editing can legitimately fail (message too old, or identical content),
+ * so a fresh reply is the fallback rather than an error the user sees.
+ */
+async function reply(c: Context, text: string, keyboard: Keyboard) {
+  if (c.callbackQuery) {
+    try {
+      await c.editMessageText(text, { parse_mode: "Markdown", ...keyboard });
+      return;
+    } catch {
+      /* fall through to a new message */
+    }
   }
+  await c.replyWithMarkdown(text, keyboard);
 }

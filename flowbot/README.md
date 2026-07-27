@@ -66,6 +66,44 @@ npm run dev
 Dependencies: `telegraf`, `viem`, `@noble/hashes`, `@scure/bip39`,
 `@scure/bip32`, plus a DB driver for `DATABASE_URL`.
 
+## Tests to run before real funds
+
+CI (`.github/workflows/ci.yml`) typechecks both projects on every push, but
+types can't prove the things below. Each one guards a failure that is
+unrecoverable or silently dangerous, so run them by hand once the bot is live.
+
+**1. Wrong password reveals nothing.**
+Open the Mini App, enter a deliberately wrong password, and confirm the screen
+says exactly *"Wrong password or corrupted keystore"* — no address, no partial
+key, no stack trace. Then check the server logs contain nothing about it at all.
+The vagueness is deliberate: a more helpful message would tell an attacker
+whether they had the right blob.
+
+**2. A bad address checksum is rejected before the confirm screen.**
+Start a withdrawal, take a valid address and change one character to a different
+case (e.g. a `b` to `B`). It must be refused at input with the checksum message
+— never reaching a confirm screen, and never signable. This is the one mistake
+in the whole product that cannot be reversed.
+
+**3. The whole-balance guard holds.**
+Try to withdraw your entire USDC balance. It should refuse: USDC pays gas on
+Arc, so draining it leaves the wallet unable to transact.
+
+**4. The recovery phrase really is shown once.**
+Create a wallet, confirm you saved the phrase, then reopen the Mini App. There
+must be no path back to it. If there is, the phrase is being retained somewhere
+it shouldn't be.
+
+**5. Fallback storage is loud, not silent.**
+Open the Mini App in a normal browser (no Telegram). The persistent warning must
+be visible, the one-time acknowledgement must appear before wallet creation, and
+a transaction above `NEXT_PUBLIC_FALLBACK_MAX_VALUE` must be blocked.
+
+**6. A cancelled order is not announced as a fill.**
+Place a limit order, cancel it, and wait for the notification sweep. It should
+go quiet — `sweepFills` distinguishes a cancel from a fill by `baseFilled`, and
+a false "filled" alert would be worse than no alert.
+
 ## Status
 
 Implemented: architecture, trust boundary, keystore module.
