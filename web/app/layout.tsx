@@ -21,6 +21,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" data-theme="dark">
       <head>
+        {/* Telegram Mini App SDK — provides SecureStorage (Bot API 9.0) and
+            initData. Harmless outside Telegram; window.Telegram stays undefined
+            and /miniapp falls back to browser storage with a visible warning. */}
+        <script src="https://telegram.org/js/telegram-web-app.js" async />
         {/* Loaded via <link> rather than next/font so the build never needs
             network access to Google — it fetches in the browser instead. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />

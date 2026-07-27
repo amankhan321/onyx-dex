@@ -52,6 +52,17 @@ true rather than marketing.
 4. Mini App asks for the password, decrypts in memory, signs, wipes.
 5. Signed tx broadcast; hash returned to the chat with an Arcscan link.
 
+## Where the crypto code lives
+
+The **canonical keystore is `web/lib/keystore.ts`** in the Onyx Next.js app —
+because that is the only place it ever runs. The FlowBot server never decrypts
+anything (it never receives a password, by design), so it needs no crypto at
+all: it imports only the `EncryptedKeystore` type and treats the blob as opaque.
+`flowbot/src/crypto/keystore.ts` is kept as the type/reference copy.
+
+One implementation, no drift, and the copy that matters is the one on the
+device.
+
 ## Where the keystore lives (Bot API 9.0 `SecureStorage`)
 
 Primary store is the **user's own device**, via Telegram's `SecureStorage` —
