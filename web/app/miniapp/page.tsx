@@ -12,6 +12,8 @@ import {
 } from "@/lib/keystore";
 import { clearKeystore, loadAddress, loadKeystore, saveAddress, saveKeystore, storageMode, telegramSession, tg } from "@/lib/telegram";
 import { MiniApp } from "./MiniApp";
+import { strengthLabel } from "@/lib/passwordStrength";
+import { tiersAvailable } from "@/lib/telegram";
 import { arcTestnet } from "@/lib/contracts";
 
 /**
@@ -60,6 +62,7 @@ export default function MiniAppPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [cloudOptIn, setCloudOptIn] = useState(true);
   const [mode_, setStorage] = useState<"secure" | "fallback">("secure");
   const [ackedFallback, setAcked] = useState(false);
 
@@ -109,7 +112,7 @@ export default function MiniAppPage() {
       setMnemonic(m);
       setKeystore(ks);
       setAddress(addr);
-      await saveKeystore(ks);
+      await saveKeystore(ks, { cloud: cloudOptIn });
       await saveAddress(addr);
       setStage("backup");
     } catch (e) {
@@ -128,7 +131,7 @@ export default function MiniAppPage() {
       const { keystore: ks, address: addr } = await importKeystore(importSecret, password);
       setKeystore(ks);
       setAddress(addr);
-      await saveKeystore(ks);
+      await saveKeystore(ks, { cloud: cloudOptIn });
       await saveAddress(addr);
       setStage("ready");
     } catch (e) {
@@ -216,6 +219,14 @@ export default function MiniAppPage() {
 
       {error && <Note tone="error">{error}</Note>}
 
+      {!telegramSession().inApp && stage !== "loading" && (
+        <Note tone="warn">
+          <strong>Opened outside Telegram.</strong> Telegram&apos;s secure and cloud storage
+          aren&apos;t available here, so a wallet created now lives only in this browser
+          and will not sync to your account. Open Onyx from the bot to set up properly.
+        </Note>
+      )}
+
       {stage === "loading" && (
         <div className="flex items-center gap-2 text-sm text-muted">
           <Loader2 size={14} className="animate-spin" /> Loading…
@@ -289,10 +300,41 @@ export default function MiniAppPage() {
             type="password"
             placeholder="min 10 chars, letters + numbers"
           />
+          {password.length > 0 && (
+            <p
+              className={`mt-1.5 text-[10px] ${
+                strengthLabel(password).score === 0
+                  ? "text-rose"
+                  : strengthLabel(password).score >= 2
+                    ? "text-mint"
+                    : "text-yellow-600"
+              }`}
+            >
+              {strengthLabel(password).label}
+            </p>
+          )}
           <p className="mt-2 text-[10px] leading-relaxed text-faint">
-            This password encrypts your key on this device. It is never sent anywhere,
-            so it cannot be reset.
+            This password encrypts your key. It is never sent anywhere, so it cannot be
+            reset — and because your encrypted wallet can sync to your Telegram account,
+            it is the only thing protecting your funds if that account is ever
+            compromised. Make it long.
           </p>
+
+          {tiersAvailable().cloud && (
+            <label className="mt-4 flex items-start gap-2.5 rounded-xl border border-[color:var(--line)] p-3">
+              <input
+                type="checkbox"
+                checked={cloudOptIn}
+                onChange={(e) => setCloudOptIn(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-[11px] leading-relaxed text-muted">
+                <span className="text-fg">Keep a backup in my Telegram account.</span> The
+                encrypted file is stored in your Telegram account so you don&apos;t lose the
+                wallet when you change phones. It is useless without your password.
+              </span>
+            </label>
+          )}
 
           <button
             onClick={mode === "create" ? onCreate : onImport}

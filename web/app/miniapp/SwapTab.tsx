@@ -7,6 +7,7 @@ import { useSwapQuote } from "@/lib/useSwapQuote";
 import { useSigner } from "@/lib/signer";
 import { buildApprove, buildSwap } from "@/lib/onyxActions";
 import { haptic } from "@/lib/telegram";
+import { REAUTH_THRESHOLD } from "./MiniApp";
 
 /**
  * Swap — the same quote, route split and price-improvement numbers the desktop
@@ -53,6 +54,8 @@ export function SwapTab({
     try {
       // Approve + swap go through as ONE signing session: the keystore signer
       // unlocks once, sends both, wipes.
+      // Above the threshold, demand the password even inside a live session.
+      const big = Number(amount) > REAUTH_THRESHOLD;
       const reqs = [
         buildApprove((zeroForOne ? ADDR.usdc : ADDR.eurc) as `0x${string}`, ADDR.router as `0x${string}`, amountIn),
         buildSwap({
@@ -65,7 +68,9 @@ export function SwapTab({
           slippageBps: 50,
         }),
       ];
-      const hashes = await signer.writeBatch(reqs);
+      const hashes = await signer.writeBatch(
+        reqs.map((r) => ({ ...r, capValue: Number(amount), requiresReauth: big })),
+      );
       haptic.success();
       onResult(hashes[hashes.length - 1]);
     } catch (e) {

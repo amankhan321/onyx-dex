@@ -2,14 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDownUp, Check, Copy, Download, ListOrdered, Wallet } from "lucide-react";
-import { SignerProvider, useKeystoreSigner } from "@/lib/signer";
+import { SignerProvider, useKeystoreSigner, type WalletLease } from "@/lib/signer";
 import { loadKeystore, storageMode, telegramSession, expand, stableHeight, backButton, haptic } from "@/lib/telegram";
 import type { EncryptedKeystore } from "@/lib/keystore";
-import { unlock as unlockKeystore } from "@/lib/keystore";
+import { unlock as unlockKeystore, type UnlockedWallet } from "@/lib/keystore";
 import { UnlockModal } from "./Unlock";
 import { SwapTab } from "./SwapTab";
 
 const FALLBACK_MAX_VALUE = Number(process.env.NEXT_PUBLIC_FALLBACK_MAX_VALUE ?? "100");
+/** Idle window for a session unlock. */
+const SESSION_MS = 5 * 60 * 1000;
+/** Above this (whole tokens), re-prompt even inside a session. */
+export const REAUTH_THRESHOLD = Number(process.env.NEXT_PUBLIC_REAUTH_THRESHOLD ?? "50");
 
 type Tab = "swap" | "orders" | "portfolio" | "deposit";
 
@@ -62,23 +66,113 @@ export function MiniApp({ keystore, address }: { keystore: EncryptedKeystore; ad
     setTimeout(() => setCopied(false), 1600);
   }, [address]);
 
-  // The pending password request: the signer awaits this promise while the
-  // modal is open. Nothing is stored — the resolver is dropped once used.
+  // The pending password request: the signer awaits this while the modal is up.
   const pending = useRef<{ resolve: (pw: string) => void; reject: (e: Error) => void } | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [askSummary, setAskSummary] = useState("");
 
-  const requestPassword = useCallback(
-    () =>
+  /**
+   * SESSION UNLOCK.
+   *
+   * The decrypted key is held in memory for a short window so a user isn't
+   * asked for their password on every trade. That is a real, deliberate
+   * reduction in security, bounded three ways:
+   *
+   *   - 5 minutes idle, timer reset on interaction;
+   *   - wiped the instant the app is backgrounded (visibilitychange), because a
+   *     phone set down is the realistic attack;
+   *   - wiped on close.
+   *
+   * Withdrawals and anything above REAUTH_THRESHOLD re-prompt regardless — a
+   * borrowed unlocked phone should not be able to move funds off-platform.
+   *
+   * The password itself is never held. Only the derived wallet is, and only for
+   * the session window.
+   */
+  const session = useRef<{ wallet: UnlockedWallet; expiresAt: number } | null>(null);
+  const [sessionActive, setSessionActive] = useState(false);
+
+  const endSession = useCallback(() => {
+    session.current?.wallet.wipe();
+    session.current = null;
+    setSessionActive(false);
+  }, []);
+
+  const touchSession = useCallback(() => {
+    if (session.current) session.current.expiresAt = Date.now() + SESSION_MS;
+  }, []);
+
+  // Idle expiry.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (session.current && Date.now() > session.current.expiresAt) endSession();
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [endSession]);
+
+  // Backgrounding and close wipe immediately.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        endSession();
+        if (pending.current) {
+          pending.current.reject(new Error("Cancelled"));
+          pending.current = null;
+          setAskOpen(false);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", endSession);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", endSession);
+      endSession();
+    };
+  }, [endSession]);
+
+  const promptPassword = useCallback(
+    (summary: string) =>
       new Promise<string>((resolve, reject) => {
         pending.current = { resolve, reject };
-        setAskSummary("Approve and swap on Arc Testnet.");
+        setAskSummary(summary);
         setAskOpen(true);
       }),
     [],
   );
 
-  const signer = useKeystoreSigner({ keystore, address, requestPassword });
+  /**
+   * Give the signer a wallet, applying session policy. `release()` wipes only
+   * when the key is NOT session-held, so the signer cannot extend its lifetime.
+   */
+  const acquireWallet = useCallback(
+    async ({ reauth }: { reauth: boolean }): Promise<WalletLease> => {
+      if (!reauth && session.current && Date.now() <= session.current.expiresAt) {
+        touchSession();
+        return { wallet: session.current.wallet, release: () => touchSession() };
+      }
+
+      const password = await promptPassword(
+        reauth
+          ? "This action moves funds off-platform — confirm your password."
+          : "Unlock your wallet to sign.",
+      );
+      const wallet = await unlockKeystore(keystore, password);
+
+      if (reauth) {
+        // Never cache a re-auth unlock: the whole point is that it expires
+        // immediately, so a second sensitive action prompts again.
+        return { wallet, release: () => wallet.wipe() };
+      }
+
+      session.current = { wallet, expiresAt: Date.now() + SESSION_MS };
+      setSessionActive(true);
+      return { wallet, release: () => touchSession() };
+    },
+    [keystore, promptPassword, touchSession],
+  );
+
+  const signer = useKeystoreSigner({ address, ready: true, acquireWallet });
 
   // Telegram layout: expand, and follow viewportStableHeight so the bottom nav
   // doesn't jump when the keyboard opens.
@@ -106,25 +200,13 @@ export function MiniApp({ keystore, address }: { keystore: EncryptedKeystore; ad
     return () => bb.offClick(onBack);
   }, [tab]);
 
-  // A backgrounded app must not leave a prompt waiting to sign.
-  useEffect(() => {
-    const onHide = () => {
-      if (document.visibilityState === "hidden" && pending.current) {
-        pending.current.reject(new Error("Cancelled"));
-        pending.current = null;
-        setAskOpen(false);
-      }
-    };
-    document.addEventListener("visibilitychange", onHide);
-    return () => document.removeEventListener("visibilitychange", onHide);
-  }, []);
-
   const submitPassword = async (pw: string) => {
-    // Verify before closing, so a typo is caught here rather than surfacing as
-    // a mysterious failure mid-transaction.
+    // Verify before closing so a typo surfaces here, not mid-transaction. The
+    // error text stays deliberately vague — it must not reveal whether the blob
+    // or the password was wrong.
     try {
-      const w = await unlockKeystore(keystore, pw);
-      w.wipe();
+      const probe = await unlockKeystore(keystore, pw);
+      probe.wipe();
     } catch {
       haptic.error();
       setAskSummary("Wrong password or corrupted keystore. Try again.");
@@ -163,6 +245,7 @@ export function MiniApp({ keystore, address }: { keystore: EncryptedKeystore; ad
             className="flex items-center gap-1.5 rounded-full border border-[color:var(--line)] px-2.5 py-1 font-mono text-[10px] text-muted transition-colors active:bg-white/5"
           >
             {address.slice(0, 6)}…{address.slice(-4)}
+            {sessionActive && <span className="text-mint" title="Unlocked">•</span>}
             {copied ? (
               <Check size={11} className="text-mint" />
             ) : (

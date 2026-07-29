@@ -65,6 +65,12 @@ type TgWebApp = {
     removeItem: (k: string, cb?: StorageCb<boolean>) => void;
     restoreItem?: (k: string, cb: StorageCb<string>) => void;
   };
+  CloudStorage?: {
+    setItem: (k: string, v: string, cb?: StorageCb<boolean>) => void;
+    getItem: (k: string, cb: StorageCb<string>) => void;
+    removeItem: (k: string, cb?: StorageCb<boolean>) => void;
+    getKeys?: (cb: StorageCb<string[]>) => void;
+  };
   DeviceStorage?: {
     setItem: (k: string, v: string, cb?: StorageCb<boolean>) => void;
     getItem: (k: string, cb: StorageCb<string>) => void;
@@ -93,14 +99,9 @@ export const inTelegram = () => tg() !== null;
  */
 export type StorageMode = "secure" | "fallback";
 
-export function storageMode(): StorageMode {
-  const app = tg();
-  return app?.SecureStorage ? "secure" : "fallback";
-}
-
 const KEYSTORE_KEY = "onyx_keystore_v1";
 
-/** Promise wrapper — Telegram's storage API is callback-style. */
+/** Promise wrapper — Telegram's storage APIs are callback-style. */
 function p<T>(fn: (cb: StorageCb<T>) => void): Promise<T | null> {
   return new Promise((resolve) => {
     try {
@@ -112,55 +113,167 @@ function p<T>(fn: (cb: StorageCb<T>) => void): Promise<T | null> {
 }
 
 /**
- * Persist the ENCRYPTED blob to device-local SecureStorage.
- * Falls back to localStorage only outside Telegram (browser dev), which is
- * flagged to the user in the UI so nobody mistakes it for the secure path.
+ * THREE-TIER KEYSTORE STORAGE.
+ *
+ * The bug this replaces: storage was device-local only, so a new phone, a fresh
+ * Telegram login, or a cleared webview dropped the user back to "Set up your
+ * wallet" — and anyone who hadn't written down their seed phrase lost the
+ * wallet outright. A missed tier looked identical to having no wallet.
+ *
+ *   secure → Telegram SecureStorage. Device-local, OS-backed. Fast, preferred.
+ *   cloud  → Telegram CloudStorage. Synced to the Telegram ACCOUNT, so it
+ *            survives changing phones. Opt-in.
+ *   local  → localStorage. Last resort, and capped (see the 100 USDC limit),
+ *            because any script on this origin can read it.
+ *
+ * Only ever the ENCRYPTED blob. The password is not written to any tier, ever,
+ * and without it every tier holds ciphertext that is useless.
+ *
+ * Cloud limits are 4096 bytes per key; our blob is ~300 bytes, so it fits with
+ * room to spare.
  */
-export async function saveKeystore(ks: EncryptedKeystore): Promise<boolean> {
-  const blob = JSON.stringify(ks);
+export type StorageTier = "secure" | "cloud" | "local";
+
+export function tiersAvailable(): Record<StorageTier, boolean> {
   const app = tg();
-  if (app?.SecureStorage) {
-    const ok = await p<boolean>((cb) => app.SecureStorage!.setItem(KEYSTORE_KEY, blob, cb));
-    return ok !== null;
-  }
-  try {
-    localStorage.setItem(KEYSTORE_KEY, blob);
-    return true;
-  } catch {
-    return false;
-  }
+  return {
+    secure: Boolean(app?.SecureStorage),
+    cloud: Boolean(app?.CloudStorage),
+    local: typeof localStorage !== "undefined",
+  };
 }
 
-export async function loadKeystore(): Promise<EncryptedKeystore | null> {
+/**
+ * Which tier a NEW write would land in if cloud isn't opted into. Drives the
+ * "less-secure storage" banner and the transaction cap.
+ */
+export function storageMode(): "secure" | "fallback" {
+  return tiersAvailable().secure ? "secure" : "fallback";
+}
+
+async function readSecure(): Promise<string | null> {
   const app = tg();
-  let raw: string | null = null;
-  if (app?.SecureStorage) {
-    raw = await p<string>((cb) => app.SecureStorage!.getItem(KEYSTORE_KEY, cb));
-    // restoreItem recovers a blob after a reinstall on the same account.
-    if (!raw && app.SecureStorage.restoreItem) {
-      raw = await p<string>((cb) => app.SecureStorage!.restoreItem!(KEYSTORE_KEY, cb));
-    }
-  } else {
-    try {
-      raw = localStorage.getItem(KEYSTORE_KEY);
-    } catch {
-      raw = null;
-    }
+  if (!app?.SecureStorage) return null;
+  let raw = await p<string>((cb) => app.SecureStorage!.getItem(KEYSTORE_KEY, cb));
+  // restoreItem recovers a blob after an app reinstall on the same account.
+  if (!raw && app.SecureStorage.restoreItem) {
+    raw = await p<string>((cb) => app.SecureStorage!.restoreItem!(KEYSTORE_KEY, cb));
   }
-  if (!raw) return null;
+  return raw;
+}
+
+async function readCloud(): Promise<string | null> {
+  const app = tg();
+  if (!app?.CloudStorage) return null;
+  return p<string>((cb) => app.CloudStorage!.getItem(KEYSTORE_KEY, cb));
+}
+
+function readLocal(): string | null {
   try {
-    return JSON.parse(raw) as EncryptedKeystore;
+    return localStorage.getItem(KEYSTORE_KEY);
   } catch {
     return null;
   }
 }
 
+/**
+ * Resolve the keystore across all tiers, first hit wins.
+ *
+ * A CloudStorage hit is written through to SecureStorage so subsequent opens
+ * are instant and work offline.
+ *
+ * Returns null ONLY when all three tiers are genuinely empty — that is the sole
+ * condition under which the UI may show "Set up your wallet".
+ */
+export async function loadKeystore(): Promise<EncryptedKeystore | null> {
+  const found = await resolveKeystore();
+  return found?.keystore ?? null;
+}
+
+export async function resolveKeystore(): Promise<{ keystore: EncryptedKeystore; tier: StorageTier } | null> {
+  const parse = (raw: string | null): EncryptedKeystore | null => {
+    if (!raw) return null;
+    try {
+      const v = JSON.parse(raw);
+      return v && v.version === 1 && v.ciphertext ? (v as EncryptedKeystore) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const secure = parse(await readSecure());
+  if (secure) return { keystore: secure, tier: "secure" };
+
+  const cloud = parse(await readCloud());
+  if (cloud) {
+    // Write through so the next open doesn't need the network.
+    const app = tg();
+    if (app?.SecureStorage) {
+      await p<boolean>((cb) => app.SecureStorage!.setItem(KEYSTORE_KEY, JSON.stringify(cloud), cb));
+    }
+    return { keystore: cloud, tier: "cloud" };
+  }
+
+  const local = parse(readLocal());
+  if (local) return { keystore: local, tier: "local" };
+
+  return null;
+}
+
+/**
+ * Persist the encrypted blob. Always writes the best available local tier;
+ * writes to the cloud only when the user has opted in.
+ */
+export async function saveKeystore(
+  ks: EncryptedKeystore,
+  opts: { cloud?: boolean } = {},
+): Promise<{ secure: boolean; cloud: boolean; local: boolean }> {
+  const blob = JSON.stringify(ks);
+  const app = tg();
+  const wrote = { secure: false, cloud: false, local: false };
+
+  if (app?.SecureStorage) {
+    wrote.secure = (await p<boolean>((cb) => app.SecureStorage!.setItem(KEYSTORE_KEY, blob, cb))) !== null;
+  }
+  if (opts.cloud && app?.CloudStorage) {
+    wrote.cloud = (await p<boolean>((cb) => app.CloudStorage!.setItem(KEYSTORE_KEY, blob, cb))) !== null;
+  }
+  if (!wrote.secure) {
+    try {
+      localStorage.setItem(KEYSTORE_KEY, blob);
+      wrote.local = true;
+    } catch {
+      /* nothing else to try */
+    }
+  }
+  return wrote;
+}
+
+/** Back up an existing wallet to the cloud after the fact (settings toggle). */
+export async function backupToCloud(ks: EncryptedKeystore): Promise<boolean> {
+  const app = tg();
+  if (!app?.CloudStorage) return false;
+  const ok = await p<boolean>((cb) => app.CloudStorage!.setItem(KEYSTORE_KEY, JSON.stringify(ks), cb));
+  return ok !== null;
+}
+
+export async function isInCloud(): Promise<boolean> {
+  return (await readCloud()) !== null;
+}
+
+/** Remove the cloud copy only. The device copy is untouched. */
+export async function removeFromCloud(): Promise<boolean> {
+  const app = tg();
+  if (!app?.CloudStorage) return false;
+  const ok = await p<boolean>((cb) => app.CloudStorage!.removeItem(KEYSTORE_KEY, cb));
+  return ok !== null;
+}
+
+/** Wipe every tier. Irreversible without the recovery phrase. */
 export async function clearKeystore(): Promise<void> {
   const app = tg();
-  if (app?.SecureStorage) {
-    await p<boolean>((cb) => app.SecureStorage!.removeItem(KEYSTORE_KEY, cb));
-    return;
-  }
+  if (app?.SecureStorage) await p<boolean>((cb) => app.SecureStorage!.removeItem(KEYSTORE_KEY, cb));
+  if (app?.CloudStorage) await p<boolean>((cb) => app.CloudStorage!.removeItem(KEYSTORE_KEY, cb));
   try {
     localStorage.removeItem(KEYSTORE_KEY);
   } catch {

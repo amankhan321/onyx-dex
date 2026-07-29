@@ -30,9 +30,17 @@ import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from "@scure/b
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { HDKey } from "@scure/bip32";
 import { privateKeyToAccount } from "viem/accounts";
+import { checkPasswordStrength } from "./passwordStrength";
 import type { PrivateKeyAccount } from "viem";
 
-/** Never lower these without understanding what it costs an attacker. */
+/**
+ * scrypt cost. N=2^17 with r=8 needs ~128 MB and roughly 1-2 seconds on a
+ * mid-range phone — deliberately slow, because the same work is what an
+ * offline attacker must repeat for every guess against a stolen blob.
+ *
+ * Never lower these. If they are ever RAISED, old keystores keep working:
+ * unlock() derives using the params recorded in each blob, not this constant.
+ */
 const KDF = { N: 1 << 17, r: 8, p: 1, dkLen: 32 } as const;
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
@@ -80,9 +88,15 @@ function subtle(): SubtleCrypto {
   return globalThis.crypto.subtle;
 }
 
-async function deriveAesKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+type KdfParams = { N: number; r: number; p: number; dkLen: number };
+
+async function deriveAesKey(
+  password: string,
+  salt: Uint8Array,
+  params: KdfParams = KDF,
+): Promise<CryptoKey> {
   const pw = new TextEncoder().encode(password.normalize("NFKC"));
-  const dk = scrypt(pw, salt, KDF);
+  const dk = scrypt(pw, salt, params);
   zero(pw);
   const key = await subtle().importKey("raw", dk as BufferSource, { name: "AES-GCM" }, false, [
     "encrypt",
@@ -125,11 +139,14 @@ async function encryptPrivateKey(pk: Uint8Array, password: string): Promise<Encr
   };
 }
 
+/**
+ * Enforced in the crypto layer so no UI path can skip it. Stricter than a length
+ * rule because the encrypted blob now syncs to Telegram's cloud — see
+ * passwordStrength.ts for the threat model.
+ */
 export function assertPasswordStrength(password: string) {
-  if (password.length < 10) throw new Error("Password must be at least 10 characters");
-  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
-    throw new Error("Password must contain both letters and numbers");
-  }
+  const res = checkPasswordStrength(password);
+  if (!res.ok) throw new Error(res.reason);
 }
 
 /** New wallet. The mnemonic is returned once for display, never persisted here. */
@@ -174,7 +191,9 @@ export async function unlock(
   if (keystore.version !== 1 || keystore.kdf !== "scrypt") {
     throw new Error("Unsupported keystore version");
   }
-  const key = await deriveAesKey(password, fromHex(keystore.salt));
+  // Use the blob's own params so keystores written under older settings
+  // still open. Reading the module constant here would strand them.
+  const key = await deriveAesKey(password, fromHex(keystore.salt), keystore.kdfParams);
   let pk: Uint8Array;
   try {
     pk = new Uint8Array(

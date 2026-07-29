@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import { createWalletClient, http, type Abi, type Hex } from "viem";
 import { useAccount, useWriteContract } from "wagmi";
 import { arcTestnet } from "./contracts";
-import { withUnlocked, type EncryptedKeystore } from "./keystore";
+import type { UnlockedWallet } from "./keystore";
 
 /**
  * ONE signing interface, two implementations.
@@ -29,6 +29,14 @@ export type WriteRequest = {
   args: readonly unknown[];
   /** Shown on the confirmation step. Not used for execution. */
   summary?: string;
+  /** Whole-token value moved. Drives the re-auth threshold and the fallback cap. */
+  capValue?: number;
+  /**
+   * Force a password prompt even inside an unlocked session. Set for
+   * withdrawals: moving funds off-platform is the one action where a borrowed
+   * unlocked phone should not be enough.
+   */
+  requiresReauth?: boolean;
 };
 
 export type OnyxSigner = {
@@ -104,23 +112,34 @@ export function useWagmiSigner(): OnyxSigner {
  * user just answered. It is awaited inside the write call, so the password has
  * the shortest possible lifetime and is never held by this module.
  */
+/**
+ * How the shell hands a usable wallet to the signer.
+ *
+ * `release()` is called in a finally block after every batch. Whether it
+ * actually wipes is the SHELL's decision: inside a live session it keeps the
+ * key resident, otherwise it wipes immediately. Keeping that policy out here
+ * means the signer can't accidentally extend a key's lifetime.
+ */
+export type WalletLease = {
+  wallet: UnlockedWallet;
+  release: () => void;
+};
+
 export function useKeystoreSigner(opts: {
-  keystore: EncryptedKeystore | null;
   address?: `0x${string}`;
-  requestPassword: () => Promise<string>;
+  ready?: boolean;
+  acquireWallet: (opts: { reauth: boolean }) => Promise<WalletLease>;
 }): OnyxSigner {
-  const { keystore, address, requestPassword } = opts;
+  const { address, acquireWallet } = opts;
 
   const writeBatch = useCallback(
     async (reqs: WriteRequest[]) => {
-      if (!keystore) throw new Error("No wallet on this device");
-      const password = await requestPassword();
-
-      // One unlock for the whole sequence; withUnlocked wipes the key in a
-      // finally block, so a mid-sequence failure still clears it.
-      return withUnlocked(keystore, password, async (w) => {
+      // Any request in the batch demanding re-auth escalates the whole batch.
+      const reauth = reqs.some((r) => r.requiresReauth);
+      const lease = await acquireWallet({ reauth });
+      try {
         const wallet = createWalletClient({
-          account: w.account,
+          account: lease.wallet.account,
           chain: arcTestnet,
           transport: http(),
         });
@@ -137,9 +156,11 @@ export function useKeystoreSigner(opts: {
           );
         }
         return hashes;
-      });
+      } finally {
+        lease.release();
+      }
     },
-    [keystore, requestPassword],
+    [acquireWallet],
   );
 
   const write = useCallback(async (req: WriteRequest) => (await writeBatch([req]))[0], [writeBatch]);
@@ -149,10 +170,10 @@ export function useKeystoreSigner(opts: {
       address,
       chainId: arcTestnet.id,
       kind: "keystore",
-      ready: Boolean(keystore && address),
+      ready: Boolean(opts.ready ?? address),
       write,
       writeBatch,
     }),
-    [address, keystore, write, writeBatch],
+    [address, opts.ready, write, writeBatch],
   );
 }
