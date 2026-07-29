@@ -1,27 +1,40 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDownUp, Check, Copy, Download, ListOrdered, Wallet } from "lucide-react";
+import { ArrowDownUp, Check, Copy, Download, ListOrdered, Settings2, Wallet } from "lucide-react";
 import { SignerProvider, useKeystoreSigner, type WalletLease } from "@/lib/signer";
 import { loadKeystore, storageMode, telegramSession, expand, stableHeight, backButton, haptic } from "@/lib/telegram";
 import type { EncryptedKeystore } from "@/lib/keystore";
 import { unlock as unlockKeystore, type UnlockedWallet } from "@/lib/keystore";
 import { UnlockModal } from "./Unlock";
 import { SwapTab } from "./SwapTab";
+import { SettingsTab } from "./SettingsTab";
+import { isInCloud, tiersAvailable, backupToCloud } from "@/lib/telegram";
 
 const FALLBACK_MAX_VALUE = Number(process.env.NEXT_PUBLIC_FALLBACK_MAX_VALUE ?? "100");
-/** Idle window for a session unlock. */
+/** Idle window for a session unlock — the hard cap regardless of activity. */
 const SESSION_MS = 5 * 60 * 1000;
+/**
+ * Grace period after the app is backgrounded before the key is wiped.
+ *
+ * Telegram's webview goes hidden constantly on mobile — an incoming call, the
+ * app switcher, pulling down notifications. Wiping instantly meant retyping a
+ * password all day, which pushes people toward shorter passwords: a security
+ * loss dressed as a security win. 45s is long enough to survive a glance at
+ * another app, short enough that a set-down phone is protected.
+ */
+const HIDDEN_GRACE_MS = 45 * 1000;
 /** Above this (whole tokens), re-prompt even inside a session. */
 export const REAUTH_THRESHOLD = Number(process.env.NEXT_PUBLIC_REAUTH_THRESHOLD ?? "50");
 
-type Tab = "swap" | "orders" | "portfolio" | "deposit";
+type Tab = "swap" | "orders" | "portfolio" | "deposit" | "settings";
 
 const TABS: { id: Tab; label: string; Icon: typeof ArrowDownUp }[] = [
   { id: "swap", label: "Swap", Icon: ArrowDownUp },
   { id: "orders", label: "Orders", Icon: ListOrdered },
   { id: "portfolio", label: "Portfolio", Icon: Wallet },
   { id: "deposit", label: "Deposit", Icon: Download },
+  { id: "settings", label: "Settings", Icon: Settings2 },
 ];
 
 /**
@@ -31,11 +44,45 @@ const TABS: { id: Tab; label: string; Icon: typeof ArrowDownUp }[] = [
  * constructed here and handed down through context, so tab components never
  * touch key material — they just call signer.write().
  */
-export function MiniApp({ keystore, address }: { keystore: EncryptedKeystore; address: `0x${string}` }) {
+export function MiniApp({
+  keystore: initialKeystore,
+  address,
+}: {
+  keystore: EncryptedKeystore;
+  address: `0x${string}`;
+}) {
+  const [keystore, setKeystore] = useState(initialKeystore);
   const [tab, setTab] = useState<Tab>("swap");
   const [height, setHeight] = useState<number>(0);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [offerBackup, setOfferBackup] = useState(false);
+
+  /**
+   * Existing users set up before cloud backup existed have a device-only
+   * wallet: change phones and it's gone unless they kept the seed phrase.
+   * Offer once, remember the answer, never nag.
+   */
+  useEffect(() => {
+    void (async () => {
+      if (!tiersAvailable().cloud) return;
+      try {
+        if (localStorage.getItem("onyx_backup_prompted_v1")) return;
+      } catch {
+        return;
+      }
+      if (!(await isInCloud())) setOfferBackup(true);
+    })();
+  }, []);
+
+  const dismissBackupOffer = useCallback(() => {
+    try {
+      localStorage.setItem("onyx_backup_prompted_v1", "1");
+    } catch {
+      /* the offer simply reappears next launch */
+    }
+    setOfferBackup(false);
+  }, []);
 
   /**
    * Copy the FULL address, not the truncated form shown on screen — a truncated
@@ -110,23 +157,40 @@ export function MiniApp({ keystore, address }: { keystore: EncryptedKeystore; ad
     return () => clearInterval(id);
   }, [endSession]);
 
-  // Backgrounding and close wipe immediately.
+  // Backgrounding starts a grace timer; closing wipes immediately.
+  const hiddenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    const cancelGrace = () => {
+      if (hiddenTimer.current) {
+        clearTimeout(hiddenTimer.current);
+        hiddenTimer.current = null;
+      }
+    };
+
     const onVis = () => {
       if (document.visibilityState === "hidden") {
-        endSession();
+        // A prompt awaiting a password is always cancelled at once — leaving a
+        // signing request open on a backgrounded app is its own hazard.
         if (pending.current) {
           pending.current.reject(new Error("Cancelled"));
           pending.current = null;
           setAskOpen(false);
         }
+        cancelGrace();
+        hiddenTimer.current = setTimeout(endSession, HIDDEN_GRACE_MS);
+      } else {
+        // Back within the grace window: keep the session, but don't extend the
+        // 5-minute idle cap, which continues to run underneath.
+        cancelGrace();
       }
     };
+
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("pagehide", endSession);
     return () => {
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pagehide", endSession);
+      cancelGrace();
       endSession();
     };
   }, [endSession]);
@@ -261,11 +325,43 @@ export function MiniApp({ keystore, address }: { keystore: EncryptedKeystore; ad
           </p>
         )}
 
+        {offerBackup && (
+          <div className="mx-4 mb-2 rounded-xl border border-indigo/30 bg-indigo/[0.08] p-3">
+            <p className="text-[11px] leading-relaxed text-fg">
+              <strong>Back up your wallet?</strong> Your encrypted wallet file can be stored
+              in your Telegram account so you don&apos;t lose it when you change phones. It
+              is useless without your password.
+            </p>
+            <div className="mt-2.5 flex gap-2">
+              <button
+                onClick={dismissBackupOffer}
+                className="flex-1 rounded-full border border-[color:var(--line)] py-1.5 text-[11px] text-muted"
+              >
+                Not now
+              </button>
+              <button
+                onClick={async () => {
+                  haptic.tap();
+                  await backupToCloud(keystore);
+                  dismissBackupOffer();
+                  haptic.success();
+                }}
+                className="flex-1 rounded-full bg-indigo py-1.5 text-[11px] font-semibold text-white"
+              >
+                Back up
+              </button>
+            </div>
+          </div>
+        )}
+
         <main className="flex-1 overflow-y-auto px-4 pb-24">
           {tab === "swap" && (
             <SwapTab onResult={setTxHash} fallbackCap={fallbackCap} />
           )}
-          {tab !== "swap" && (
+          {tab === "settings" && (
+            <SettingsTab keystore={keystore} onKeystoreChange={setKeystore} />
+          )}
+          {tab !== "swap" && tab !== "settings" && (
             <div className="glass mt-4 p-5 text-center">
               <p className="text-sm text-fg">{TABS.find((t) => t.id === tab)?.label}</p>
               <p className="mt-1 text-xs text-faint">Coming in the next build.</p>
@@ -284,7 +380,7 @@ export function MiniApp({ keystore, address }: { keystore: EncryptedKeystore; ad
           )}
         </main>
 
-        <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-[color:var(--line)] bg-base/95 backdrop-blur-xl">
+        <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[color:var(--line)] bg-base/95 backdrop-blur-xl">
           {TABS.map(({ id, label, Icon }) => (
             <button
               key={id}

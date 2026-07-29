@@ -10,7 +10,7 @@ import {
   withUnlocked,
   type EncryptedKeystore,
 } from "@/lib/keystore";
-import { clearKeystore, loadAddress, loadKeystore, saveAddress, saveKeystore, storageMode, telegramSession, tg } from "@/lib/telegram";
+import { clearKeystore, loadAddress, resolveKeystoreDetailed, saveAddress, saveKeystore, storageMode, telegramSession, tg } from "@/lib/telegram";
 import { MiniApp } from "./MiniApp";
 import { strengthLabel } from "@/lib/passwordStrength";
 import { tiersAvailable } from "@/lib/telegram";
@@ -38,7 +38,7 @@ type Unsigned = {
   /** Whole-token value moved, used for the less-secure-storage cap. */
   capValue?: number;
 };
-type Stage = "loading" | "onboard" | "backup" | "confirm-backup" | "ready" | "signing" | "done";
+type Stage = "loading" | "storage-error" | "onboard" | "backup" | "confirm-backup" | "ready" | "signing" | "done";
 
 /**
  * Cap on what may be signed while the blob sits in the weaker fallback store.
@@ -63,6 +63,7 @@ export default function MiniAppPage() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [cloudOptIn, setCloudOptIn] = useState(true);
+  const [tierFailures, setTierFailures] = useState<{ tier: string; reason: string }[]>([]);
   const [mode_, setStorage] = useState<"secure" | "fallback">("secure");
   const [ackedFallback, setAcked] = useState(false);
 
@@ -92,12 +93,35 @@ export default function MiniAppPage() {
       }
     }
 
-    void (async () => {
-      const [ks, addr] = await Promise.all([loadKeystore(), loadAddress()]);
-      setKeystore(ks);
-      if (addr) setAddress(addr);
-      setStage(ks ? "ready" : "onboard");
-    })();
+    void boot();
+  }, []);
+
+  /**
+   * Resolve the wallet across all storage tiers.
+   *
+   * Onboarding is shown ONLY when every tier definitively reported empty. If any
+   * tier errored — offline, rate-limited, an old client — we show a retry
+   * instead, because a wallet probably exists behind that failure and sending
+   * the user to "import your seed phrase" is how wallets get lost.
+   */
+  const boot = useCallback(async () => {
+    setStage("loading");
+    const [res, addr] = await Promise.all([resolveKeystoreDetailed(), loadAddress()]);
+    if (addr) setAddress(addr);
+
+    if (res.status === "found") {
+      setKeystore(res.keystore);
+      setTierFailures([]);
+      setStage("ready");
+      return;
+    }
+    if (res.status === "error") {
+      setTierFailures(res.failures);
+      setStage("storage-error");
+      return;
+    }
+    setTierFailures([]);
+    setStage("onboard");
   }, []);
 
   const fail = (e: unknown) =>
@@ -225,6 +249,33 @@ export default function MiniAppPage() {
           aren&apos;t available here, so a wallet created now lives only in this browser
           and will not sync to your account. Open Onyx from the bot to set up properly.
         </Note>
+      )}
+
+      {stage === "storage-error" && (
+        <section className="glass p-5">
+          <h1 className="text-base font-medium text-fg">Couldn&apos;t reach your wallet</h1>
+          <p className="mt-2 text-xs leading-relaxed text-faint">
+            One or more storage locations didn&apos;t respond, so we can&apos;t tell whether
+            you have a wallet here. We won&apos;t ask you to set up a new one until we
+            know for sure — that could overwrite an existing wallet.
+          </p>
+          <ul className="mt-3 space-y-1">
+            {tierFailures.map((f) => (
+              <li key={f.tier} className="font-mono text-[10px] text-rose">
+                {f.tier}: {f.reason}
+              </li>
+            ))}
+          </ul>
+          <button
+            onClick={() => void boot()}
+            className="cta mt-4 w-full bg-indigo py-2.5 text-sm font-semibold text-white"
+          >
+            Try again
+          </button>
+          <p className="mt-2 text-center text-[10px] text-faint">
+            If this persists, check your connection or update Telegram.
+          </p>
+        </section>
       )}
 
       {stage === "loading" && (

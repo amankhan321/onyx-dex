@@ -26,6 +26,7 @@
  */
 
 import { scrypt } from "@noble/hashes/scrypt.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { HDKey } from "@scure/bip32";
@@ -42,18 +43,51 @@ import type { PrivateKeyAccount } from "viem";
  * unlock() derives using the params recorded in each blob, not this constant.
  */
 const KDF = { N: 1 << 17, r: 8, p: 1, dkLen: 32 } as const;
+/**
+ * Hard bounds on the KDF cost we will honour from a blob.
+ *
+ * The params travel INSIDE the keystore so old wallets keep opening after a
+ * tuning change — but that means a corrupted or hostile blob can propose them.
+ * Too low silently weakens the key. Too high is a denial of service: scrypt at
+ * N=2^30 would try to allocate gigabytes and wedge the phone. So anything
+ * outside this range is rejected as malformed rather than obeyed.
+ */
+const KDF_BOUNDS = {
+  minN: 1 << 14, // ~16 MB — below this the KDF stops being meaningfully slow
+  maxN: 1 << 20, // ~1 GB — beyond this a phone will stall or crash
+  minR: 1,
+  maxR: 16,
+  minP: 1,
+  maxP: 4,
+  dkLen: 32,
+} as const;
+
+/** Bumped when the on-disk shape changes. v2 added the integrity tag. */
+export const KEYSTORE_VERSION = 2 as const;
+
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 const ARC_PATH = "m/44'/60'/0'/0/0"; // Arc is EVM — standard path
 
 /** The only thing that may be persisted or backed up. Contains no cleartext secret. */
 export type EncryptedKeystore = {
-  version: 1;
+  /** 1 = original. 2 = adds `integrity`. Both remain readable. */
+  version: 1 | 2;
   kdf: "scrypt";
   kdfParams: { N: number; r: number; p: number; dkLen: number };
   salt: string;
   iv: string;
   ciphertext: string;
+  /**
+   * sha256(salt || iv || ciphertext), hex. Present from v2.
+   *
+   * Lets a failed unlock distinguish "wrong password" from "this blob is not
+   * the bytes we wrote". Be clear about its limits: it detects corruption and
+   * accidental alteration — truncated cloud writes, a mangled sync — not a
+   * deliberate attacker, who would simply recompute it. It is an integrity
+   * check, not an authenticity one.
+   */
+  integrity?: string;
 };
 
 export type UnlockedWallet = {
@@ -130,12 +164,13 @@ async function encryptPrivateKey(pk: Uint8Array, password: string): Promise<Encr
     await subtle().encrypt({ name: "AES-GCM", iv: iv as BufferSource }, key, pk as BufferSource),
   );
   return {
-    version: 1,
+    version: KEYSTORE_VERSION,
     kdf: "scrypt",
     kdfParams: { ...KDF },
     salt: toHex(salt),
     iv: toHex(iv),
     ciphertext: toHex(ct),
+    integrity: computeIntegrity(salt, iv, ct),
   };
 }
 
@@ -144,6 +179,58 @@ async function encryptPrivateKey(pk: Uint8Array, password: string): Promise<Encr
  * rule because the encrypted blob now syncs to Telegram's cloud — see
  * passwordStrength.ts for the threat model.
  */
+function computeIntegrity(salt: Uint8Array, iv: Uint8Array, ct: Uint8Array): string {
+  const joined = new Uint8Array(salt.length + iv.length + ct.length);
+  joined.set(salt, 0);
+  joined.set(iv, salt.length);
+  joined.set(ct, salt.length + iv.length);
+  return toHex(sha256(joined));
+}
+
+/** Thrown when a blob is structurally wrong — distinct from a bad password. */
+export class KeystoreCorruptError extends Error {
+  constructor(detail: string) {
+    super(`This wallet backup appears corrupted or altered (${detail}).`);
+    this.name = "KeystoreCorruptError";
+  }
+}
+
+/** Thrown only when the blob is intact and the password simply doesn't open it. */
+export class WrongPasswordError extends Error {
+  constructor() {
+    super("Wrong password.");
+    this.name = "WrongPasswordError";
+  }
+}
+
+function assertUsableKeystore(k: EncryptedKeystore) {
+  if (k.version !== 1 && k.version !== 2) {
+    throw new KeystoreCorruptError(`unsupported version ${String(k.version)}`);
+  }
+  if (k.kdf !== "scrypt") throw new KeystoreCorruptError("unknown key-derivation function");
+
+  const kp = k.kdfParams;
+  if (!kp || typeof kp.N !== "number") throw new KeystoreCorruptError("missing KDF parameters");
+
+  // A power of two is required by scrypt itself; checking it here gives a clear
+  // message instead of a library throw.
+  if (kp.N < KDF_BOUNDS.minN || kp.N > KDF_BOUNDS.maxN || (kp.N & (kp.N - 1)) !== 0) {
+    throw new KeystoreCorruptError(`KDF cost ${kp.N} is out of the accepted range`);
+  }
+  if (kp.r < KDF_BOUNDS.minR || kp.r > KDF_BOUNDS.maxR) {
+    throw new KeystoreCorruptError(`KDF block size ${kp.r} is out of range`);
+  }
+  if (kp.p < KDF_BOUNDS.minP || kp.p > KDF_BOUNDS.maxP) {
+    throw new KeystoreCorruptError(`KDF parallelism ${kp.p} is out of range`);
+  }
+  if (kp.dkLen !== KDF_BOUNDS.dkLen) {
+    throw new KeystoreCorruptError("unexpected derived-key length");
+  }
+  if (!/^[0-9a-f]+$/i.test(k.salt) || !/^[0-9a-f]+$/i.test(k.iv) || !/^[0-9a-f]+$/i.test(k.ciphertext)) {
+    throw new KeystoreCorruptError("malformed fields");
+  }
+}
+
 export function assertPasswordStrength(password: string) {
   const res = checkPasswordStrength(password);
   if (!res.ok) throw new Error(res.reason);
@@ -188,27 +275,86 @@ export async function unlock(
   keystore: EncryptedKeystore,
   password: string,
 ): Promise<UnlockedWallet> {
-  if (keystore.version !== 1 || keystore.kdf !== "scrypt") {
-    throw new Error("Unsupported keystore version");
+  assertUsableKeystore(keystore);
+
+  const saltB = fromHex(keystore.salt);
+  const ivB = fromHex(keystore.iv);
+  const ctB = fromHex(keystore.ciphertext);
+
+  // v2 blobs carry an integrity tag. A mismatch means the bytes changed since
+  // we wrote them — a bad cloud sync, a truncated write — which is a different
+  // problem from a mistyped password and deserves different advice.
+  if (keystore.version >= 2 && keystore.integrity) {
+    if (computeIntegrity(saltB, ivB, ctB) !== keystore.integrity.toLowerCase()) {
+      throw new KeystoreCorruptError("contents do not match their checksum");
+    }
   }
   // Use the blob's own params so keystores written under older settings
   // still open. Reading the module constant here would strand them.
-  const key = await deriveAesKey(password, fromHex(keystore.salt), keystore.kdfParams);
+  const key = await deriveAesKey(password, saltB, keystore.kdfParams);
   let pk: Uint8Array;
   try {
     pk = new Uint8Array(
-      await subtle().decrypt(
-        { name: "AES-GCM", iv: fromHex(keystore.iv) as BufferSource },
-        key,
-        fromHex(keystore.ciphertext) as BufferSource,
-      ),
+      await subtle().decrypt({ name: "AES-GCM", iv: ivB as BufferSource }, key, ctB as BufferSource),
     );
   } catch {
-    // GCM auth failure. Deliberately vague — carries no key material.
+    // GCM auth failure with an intact blob means the password is wrong. For v1
+    // blobs (no integrity tag) we cannot tell the two apart, so we stay vague.
+    // Neither path reveals key material, and NOTHING is ever deleted on failure
+    // — a locked-out user must keep their only copy.
+    if (keystore.version >= 2 && keystore.integrity) throw new WrongPasswordError();
     throw new Error("Wrong password or corrupted keystore");
   }
   const account = privateKeyToAccount(`0x${toHex(pk)}`);
   return { address: account.address, account, wipe: () => zero(pk) };
+}
+
+/**
+ * Re-encrypt an existing wallet under a new password.
+ *
+ * Deliberately lives here rather than in the UI: the plaintext key is decrypted
+ * and re-wrapped entirely inside this module and zeroed in a finally block, so
+ * it never crosses the boundary. Exposing the raw key to a settings screen just
+ * to re-encrypt it would defeat the point of keeping crypto in one place.
+ *
+ * Returns the new blob. The caller is responsible for writing it to EVERY tier
+ * the wallet lives in — a cloud copy left on the old password is worse than no
+ * backup, because the user believes they're covered.
+ */
+export async function changePassword(
+  keystore: EncryptedKeystore,
+  oldPassword: string,
+  newPassword: string,
+): Promise<EncryptedKeystore> {
+  assertPasswordStrength(newPassword);
+  assertUsableKeystore(keystore);
+
+  const saltB = fromHex(keystore.salt);
+  const ivB = fromHex(keystore.iv);
+  const ctB = fromHex(keystore.ciphertext);
+
+  if (keystore.version >= 2 && keystore.integrity) {
+    if (computeIntegrity(saltB, ivB, ctB) !== keystore.integrity.toLowerCase()) {
+      throw new KeystoreCorruptError("contents do not match their checksum");
+    }
+  }
+
+  const oldKey = await deriveAesKey(oldPassword, saltB, keystore.kdfParams);
+  let pk: Uint8Array;
+  try {
+    pk = new Uint8Array(
+      await subtle().decrypt({ name: "AES-GCM", iv: ivB as BufferSource }, oldKey, ctB as BufferSource),
+    );
+  } catch {
+    if (keystore.version >= 2 && keystore.integrity) throw new WrongPasswordError();
+    throw new Error("Wrong password or corrupted keystore");
+  }
+
+  try {
+    return await encryptPrivateKey(pk, newPassword);
+  } finally {
+    zero(pk);
+  }
 }
 
 /** Preferred entry point: unlock, use, wipe — even if the callback throws. */
