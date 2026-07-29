@@ -1,0 +1,36 @@
+name: Register Telegram webhook
+
+# Run this ONCE after setting the Vercel env vars, and again if the deployment
+# URL ever changes.
+#
+# It calls a protected route on Vercel, which then calls Telegram server-side.
+# Telegram's setWebhook needs the bot token in the request path, so doing this
+# from a browser would leave the token in the URL bar, history and referrer.
+# This way the token never leaves Vercel's environment — this workflow only
+# holds the admin secret.
+on:
+  workflow_dispatch:
+
+jobs:
+  register:
+    name: Point Telegram at the deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call setup route
+        env:
+          BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+          ADMIN_SECRET: ${{ secrets.TELEGRAM_ADMIN_SECRET }}
+        run: |
+          set -eu   # not -x: tracing would print the admin secret
+          if [ -z "${BASE_URL}" ] || [ -z "${ADMIN_SECRET}" ]; then
+            echo "PUBLIC_BASE_URL or TELEGRAM_ADMIN_SECRET is missing from repo secrets" >&2
+            exit 1
+          fi
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' \
+            -X POST "${BASE_URL}/api/telegram/setup" \
+            -H "x-admin-secret: ${ADMIN_SECRET}")
+          echo "HTTP ${code}"
+          cat /tmp/out.json
+          echo ""
+          [ "${code}" = "200" ] || { echo "webhook registration failed" >&2; exit 1; }
+          echo "✓ webhook registered"

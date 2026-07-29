@@ -1,0 +1,39 @@
+name: Telegram notifications sweep
+
+# Fill alerts and price alerts.
+#
+# Vercel Hobby cron runs once a DAY, which is useless for "your order filled".
+# The droplet keeper could do it, but updating that needs shell access — the
+# thing this whole change was meant to remove. So: a scheduled Action pings a
+# protected route. Already in the repo, configurable from a browser, free.
+#
+# Caveats worth knowing: GitHub's scheduler is best-effort and can lag under
+# load, and it disables scheduled workflows after 60 days without repo activity.
+# If alerts need to be dependable, swap this for cron-job.org hitting the same
+# route with the same header.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: telegram-cron
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping sweep route
+        env:
+          BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+          ADMIN_SECRET: ${{ secrets.TELEGRAM_ADMIN_SECRET }}
+        run: |
+          set -eu
+          [ -n "${BASE_URL}" ] && [ -n "${ADMIN_SECRET}" ] || {
+            echo "repo secrets PUBLIC_BASE_URL / TELEGRAM_ADMIN_SECRET not set" >&2; exit 1; }
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' \
+            -X POST "${BASE_URL}/api/telegram/cron" \
+            -H "x-admin-secret: ${ADMIN_SECRET}")
+          echo "HTTP ${code}"; cat /tmp/out.json; echo ""
+          [ "${code}" = "200" ] || exit 1

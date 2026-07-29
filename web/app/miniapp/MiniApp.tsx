@@ -9,7 +9,7 @@ import { unlock as unlockKeystore, type UnlockedWallet } from "@/lib/keystore";
 import { UnlockModal } from "./Unlock";
 import { SwapTab } from "./SwapTab";
 import { SettingsTab } from "./SettingsTab";
-import { isInCloud, tiersAvailable, backupToCloud } from "@/lib/telegram";
+import { isInCloud, tiersAvailable, backupToCloud, initData } from "@/lib/telegram";
 
 const FALLBACK_MAX_VALUE = Number(process.env.NEXT_PUBLIC_FALLBACK_MAX_VALUE ?? "100");
 /** Idle window for a session unlock — the hard cap regardless of activity. */
@@ -74,6 +74,25 @@ export function MiniApp({
       if (!(await isInCloud())) setOfferBackup(true);
     })();
   }, []);
+
+  /**
+   * Tell the server which Telegram account this address belongs to, so fill and
+   * price alerts reach the right chat. The server verifies the initData HMAC
+   * before storing anything — otherwise anyone could claim any telegram_id and
+   * redirect someone else's notifications to themselves.
+   *
+   * Public address only. Fire-and-forget: notifications are a convenience, and
+   * failing to register one must never block the wallet from working.
+   */
+  useEffect(() => {
+    const data = initData();
+    if (!data) return;
+    void fetch("/api/telegram/link", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address, initData: data }),
+    }).catch(() => undefined);
+  }, [address]);
 
   const dismissBackupOffer = useCallback(() => {
     try {

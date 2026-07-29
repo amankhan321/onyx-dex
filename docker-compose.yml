@@ -16,19 +16,6 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
-  # Telegram bot. Holds no keys — it previews unsigned transactions and the
-  # Mini App signs them on the user's device. Its .env is written at deploy
-  # time by the self-hosted runner from a GitHub secret; it is never committed.
-  flowbot:
-    build: ./flowbot
-    restart: unless-stopped
-    env_file: ./flowbot/.env
-    volumes:
-      - flowbot_data:/data
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "3" }
-
   web:
     build: ./web
     restart: unless-stopped
@@ -51,6 +38,5 @@ services:
       - web
 
 volumes:
-  flowbot_data:
   caddy_data:
   caddy_config:
