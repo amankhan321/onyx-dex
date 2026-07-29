@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createWalletClient, http, type Hex } from "viem";
 import { AlertTriangle, Check, Copy, Loader2, ShieldCheck } from "lucide-react";
 import {
@@ -12,7 +12,7 @@ import {
 } from "@/lib/keystore";
 import { clearKeystore, loadAddress, resolveKeystoreDetailed, saveAddress, saveKeystore, storageMode, telegramSession, tg } from "@/lib/telegram";
 import { MiniApp } from "./MiniApp";
-import { strengthLabel } from "@/lib/passwordStrength";
+import { checkPasswordStrength } from "@/lib/passwordStrength";
 import { tiersAvailable } from "@/lib/telegram";
 import { arcTestnet } from "@/lib/contracts";
 
@@ -63,6 +63,21 @@ export default function MiniAppPage() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [cloudOptIn, setCloudOptIn] = useState(true);
+
+  /**
+   * The SAME validator the crypto layer enforces, run on every keystroke.
+   * Previously the button enabled at any non-empty password and the user only
+   * discovered the rule after tapping — and after a multi-second derivation.
+   * The rules are unchanged; they just surface before the work starts.
+   */
+  const pwCheck = password.length > 0 ? checkPasswordStrength(password) : null;
+  const pwOk = pwCheck?.ok === true;
+
+  /**
+   * Derivation takes seconds, so a double-tap can fire twice before React
+   * re-renders the disabled button. A ref closes that window.
+   */
+  const running = useRef(false);
   const [tierFailures, setTierFailures] = useState<{ tier: string; reason: string }[]>([]);
   const [durableUnsupported, setDurableUnsupported] = useState(false);
   const [mode_, setStorage] = useState<"secure" | "fallback">("secure");
@@ -133,6 +148,8 @@ export default function MiniAppPage() {
     setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
   async function onCreate() {
+    if (running.current) return;
+    running.current = true;
     setError(null);
     setBusy(true);
     try {
@@ -147,12 +164,15 @@ export default function MiniAppPage() {
     } catch (e) {
       fail(e);
     } finally {
+      running.current = false;
       setBusy(false);
       setPassword("");
     }
   }
 
   async function onImport() {
+    if (running.current) return;
+    running.current = true;
     setError(null);
     setBusy(true);
     try {
@@ -166,6 +186,7 @@ export default function MiniAppPage() {
     } catch (e) {
       fail(e);
     } finally {
+      running.current = false;
       setBusy(false);
       setPassword("");
       setImportSecret(""); // never leave a seed phrase sitting in component state
@@ -361,17 +382,9 @@ export default function MiniAppPage() {
             type="password"
             placeholder="min 10 chars, letters + numbers"
           />
-          {password.length > 0 && (
-            <p
-              className={`mt-1.5 text-[10px] ${
-                strengthLabel(password).score === 0
-                  ? "text-rose"
-                  : strengthLabel(password).score >= 2
-                    ? "text-mint"
-                    : "text-yellow-600"
-              }`}
-            >
-              {strengthLabel(password).label}
+          {pwCheck && (
+            <p className={`mt-1.5 text-[10px] leading-relaxed ${pwOk ? "text-mint" : "text-rose"}`}>
+              {pwOk ? "Looks good." : pwCheck.reason}
             </p>
           )}
           <p className="mt-2 text-[10px] leading-relaxed text-faint">
@@ -399,11 +412,21 @@ export default function MiniAppPage() {
 
           <button
             onClick={mode === "create" ? onCreate : onImport}
-            disabled={busy || !password}
-            className="cta mt-4 w-full bg-indigo py-2.5 text-sm font-semibold text-white disabled:opacity-30"
+            disabled={busy || !pwOk || (mode === "import" && !importSecret)}
+            className="cta mt-4 flex w-full items-center justify-center gap-2 bg-indigo py-2.5 text-sm font-semibold text-white disabled:opacity-30"
           >
-            {busy ? "Encrypting…" : mode === "create" ? "Create wallet" : "Import wallet"}
+            {busy && <Loader2 size={14} className="animate-spin" />}
+            {busy
+              ? "Encrypting your key…"
+              : mode === "create"
+                ? "Create wallet"
+                : "Import wallet"}
           </button>
+          {busy && (
+            <p className="mt-2 text-center text-[10px] leading-relaxed text-faint">
+              This takes a few seconds — please don&apos;t close this screen.
+            </p>
+          )}
         </section>
       )}
 

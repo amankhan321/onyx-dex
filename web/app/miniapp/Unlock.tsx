@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Lock } from "lucide-react";
+import { Loader2, Lock } from "lucide-react";
 
 /**
  * Password prompt for a single signing session.
@@ -14,11 +14,14 @@ import { Lock } from "lucide-react";
 export function UnlockModal({
   open,
   summary,
+  busy = false,
   onSubmit,
   onCancel,
 }: {
   open: boolean;
   summary: string;
+  /** True while the key is being derived — seconds of work, so say so. */
+  busy?: boolean;
   onSubmit: (password: string) => void;
   onCancel: () => void;
 }) {
@@ -46,28 +49,32 @@ export function UnlockModal({
           type="password"
           value={pw}
           onChange={(e) => setPw(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && pw && onSubmit(pw)}
+          onKeyDown={(e) => e.key === "Enter" && pw && !busy && onSubmit(pw)}
           placeholder="Wallet password"
           autoComplete="off"
           className="mt-4 w-full rounded-lg border border-[color:var(--line)] bg-transparent px-3 py-2.5 font-mono text-sm text-fg outline-none placeholder:text-faint/50"
         />
-        <p className="mt-2 text-[10px] text-faint">
-          Unlocks your key just long enough to sign, then wipes it. Never sent anywhere.
+        <p className="mt-2 text-[10px] leading-relaxed text-faint">
+          {busy
+            ? "Deriving your key — this takes a few seconds. Don't close this."
+            : "Unlocks your key just long enough to sign, then wipes it. Never sent anywhere."}
         </p>
 
         <div className="mt-4 flex gap-2">
           <button
             onClick={onCancel}
-            className="flex-1 rounded-full border border-[color:var(--line)] py-2.5 text-sm text-muted"
+            disabled={busy}
+            className="flex-1 rounded-full border border-[color:var(--line)] py-2.5 text-sm text-muted disabled:opacity-40"
           >
             Cancel
           </button>
           <button
-            onClick={() => pw && onSubmit(pw)}
-            disabled={!pw}
-            className="flex-1 rounded-full bg-indigo py-2.5 text-sm font-semibold text-white disabled:opacity-30"
+            onClick={() => pw && !busy && onSubmit(pw)}
+            disabled={!pw || busy}
+            className="flex-1 flex items-center justify-center gap-2 rounded-full bg-indigo py-2.5 text-sm font-semibold text-white disabled:opacity-30"
           >
-            Sign
+            {busy && <Loader2 size={13} className="animate-spin" />}
+            {busy ? "Unlocking…" : "Sign"}
           </button>
         </div>
       </div>

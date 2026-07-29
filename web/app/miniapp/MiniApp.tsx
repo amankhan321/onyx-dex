@@ -136,6 +136,10 @@ export function MiniApp({
   const pending = useRef<{ resolve: (pw: string) => void; reject: (e: Error) => void } | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [askSummary, setAskSummary] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  // Derivation takes seconds; a ref closes the double-tap window that a
+  // disabled-button check alone leaves open.
+  const unlockingRef = useRef(false);
 
   /**
    * SESSION UNLOCK.
@@ -284,6 +288,9 @@ export function MiniApp({
   }, [tab]);
 
   const submitPassword = async (pw: string) => {
+    if (unlockingRef.current) return;
+    unlockingRef.current = true;
+    setUnlocking(true);
     // Verify before closing so a typo surfaces here, not mid-transaction. The
     // error text stays deliberately vague — it must not reveal whether the blob
     // or the password was wrong.
@@ -294,6 +301,9 @@ export function MiniApp({
       haptic.error();
       setAskSummary("Wrong password or corrupted keystore. Try again.");
       return;
+    } finally {
+      unlockingRef.current = false;
+      setUnlocking(false);
     }
     setAskOpen(false);
     pending.current?.resolve(pw);
@@ -421,6 +431,7 @@ export function MiniApp({
       <UnlockModal
         open={askOpen}
         summary={askSummary}
+        busy={unlocking}
         onSubmit={submitPassword}
         onCancel={cancelPassword}
       />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Cloud, CloudOff, KeyRound, Loader2 } from "lucide-react";
 import {
   KeystoreCorruptError,
@@ -8,7 +8,7 @@ import {
   changePassword as reencrypt,
   type EncryptedKeystore,
 } from "@/lib/keystore";
-import { checkPasswordStrength, strengthLabel } from "@/lib/passwordStrength";
+import { checkPasswordStrength } from "@/lib/passwordStrength";
 import {
   backupToCloud,
   isInCloud,
@@ -41,6 +41,11 @@ export function SettingsTab({
   const [oldPw, setOldPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
+
+  // Same validator as the crypto layer, surfaced per keystroke.
+  const newCheck = newPw.length > 0 ? checkPasswordStrength(newPw) : null;
+  const newOk = newCheck?.ok === true;
+  const running = useRef(false);
 
   const cloudAvailable = tiersAvailable().cloud;
 
@@ -86,6 +91,8 @@ export function SettingsTab({
    * believe they were covered.
    */
   async function changePassword() {
+    if (running.current) return;
+    running.current = true;
     setBusy(true);
     setErr(null);
     setMsg(null);
@@ -112,6 +119,7 @@ export function SettingsTab({
       else if (e instanceof KeystoreCorruptError) setErr(e.message);
       else setErr(e instanceof Error ? e.message : "Couldn't change the password.");
     } finally {
+      running.current = false;
       setBusy(false);
     }
   }
@@ -193,17 +201,9 @@ export function SettingsTab({
                   autoComplete="off"
                   className="w-full rounded-lg border border-[color:var(--line)] bg-transparent px-3 py-2 font-mono text-xs text-fg outline-none"
                 />
-                {newPw && (
-                  <p
-                    className={`text-[10px] ${
-                      strengthLabel(newPw).score === 0
-                        ? "text-rose"
-                        : strengthLabel(newPw).score >= 2
-                          ? "text-mint"
-                          : "text-yellow-600"
-                    }`}
-                  >
-                    {strengthLabel(newPw).label}
+                {newCheck && (
+                  <p className={`text-[10px] leading-relaxed ${newOk ? "text-mint" : "text-rose"}`}>
+                    {newOk ? "Looks good." : newCheck.reason}
                   </p>
                 )}
                 <input
@@ -229,10 +229,11 @@ export function SettingsTab({
                   </button>
                   <button
                     onClick={changePassword}
-                    disabled={busy || !oldPw || !newPw || !confirmPw}
-                    className="flex-1 rounded-full bg-indigo py-2 text-xs font-semibold text-white disabled:opacity-30"
+                    disabled={busy || !oldPw || !newOk || newPw !== confirmPw}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-full bg-indigo py-2 text-xs font-semibold text-white disabled:opacity-30"
                   >
-                    {busy ? "Working…" : "Save"}
+                    {busy && <Loader2 size={12} className="animate-spin" />}
+                    {busy ? "Re-encrypting…" : "Save"}
                   </button>
                 </div>
               </div>

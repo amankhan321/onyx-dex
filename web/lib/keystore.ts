@@ -134,14 +134,57 @@ function subtle(): SubtleCrypto {
 
 type KdfParams = { N: number; r: number; p: number; dkLen: number };
 
+/**
+ * Derive the raw key bytes, off the main thread where possible.
+ *
+ * Falls back to synchronous scrypt when Workers are unavailable — SSR, and some
+ * restrictive webviews. That path still WORKS, it just blocks; refusing to
+ * derive at all would mean no wallet rather than a slow one.
+ */
+async function deriveKeyBytes(
+  password: string,
+  salt: Uint8Array,
+  params: KdfParams,
+): Promise<Uint8Array> {
+  if (typeof Worker === "undefined") {
+    const pw = new TextEncoder().encode(password.normalize("NFKC"));
+    const dk = scrypt(pw, salt, params);
+    zero(pw);
+    return dk;
+  }
+
+  return new Promise<Uint8Array>((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./kdf.worker.ts", import.meta.url), { type: "module" });
+    } catch {
+      // Worker construction blocked: derive inline rather than failing outright.
+      const pw = new TextEncoder().encode(password.normalize("NFKC"));
+      const dk = scrypt(pw, salt, params);
+      zero(pw);
+      return resolve(dk);
+    }
+
+    const finish = (fn: () => void) => {
+      worker.terminate();
+      fn();
+    };
+    worker.onmessage = (e: MessageEvent<{ ok: boolean; dk?: Uint8Array; error?: string }>) => {
+      if (e.data.ok && e.data.dk) finish(() => resolve(new Uint8Array(e.data.dk!)));
+      // Never surface the worker's raw error — it could echo input.
+      else finish(() => reject(new Error("Could not unlock. Please try again.")));
+    };
+    worker.onerror = () => finish(() => reject(new Error("Could not unlock. Please try again.")));
+    worker.postMessage({ password, salt, params });
+  });
+}
+
 async function deriveAesKey(
   password: string,
   salt: Uint8Array,
   params: KdfParams = KDF,
 ): Promise<CryptoKey> {
-  const pw = new TextEncoder().encode(password.normalize("NFKC"));
-  const dk = scrypt(pw, salt, params);
-  zero(pw);
+  const dk = await deriveKeyBytes(password, salt, params);
   const key = await subtle().importKey("raw", dk as BufferSource, { name: "AES-GCM" }, false, [
     "encrypt",
     "decrypt",
