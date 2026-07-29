@@ -1,0 +1,123 @@
+name: Deploy FlowBot
+
+# Runs on a SELF-HOSTED runner installed on the droplet, so the Telegram token
+# travels GitHub secret -> runner -> .env on that machine. It never passes
+# through a hosted runner, never enters the repo, and never appears in a log.
+#
+# Manual by default. The push trigger is path-filtered so unrelated commits
+# don't restart a live bot.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "flowbot/**"
+      - "docker-compose.yml"
+      - ".github/workflows/deploy-flowbot.yml"
+
+concurrency:
+  group: deploy-flowbot
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to droplet
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write runtime env
+        env:
+          # The only place the secret is referenced. GitHub masks it in logs;
+          # nothing below echoes it regardless.
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          set -eu   # deliberately NOT -x: tracing would print the token
+          if [ -z "${BOT_TOKEN}" ]; then
+            echo "TELEGRAM_BOT_TOKEN secret is empty or not set on this repository" >&2
+            exit 1
+          fi
+
+          # 077 so the file is readable only by the runner user.
+          umask 077
+          cat > flowbot/.env <<ENVFILE
+          TELEGRAM_BOT_TOKEN=${BOT_TOKEN}
+          MINIAPP_URL=https://onyx-dex.vercel.app/miniapp
+
+          ARC_RPC_URL=https://rpc.testnet.arc.network
+          ARC_CHAIN_ID=5042002
+          ARC_EXPLORER=https://testnet.arcscan.app
+
+          USDC_ADDRESS=0x3600000000000000000000000000000000000000
+          EURC_ADDRESS=0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a
+
+          ONYX_ROUTER=0x52F9Df11DAE5Af839c28216e2d4f8ab678219312
+          ONYX_ORDERBOOK=0x6E04B607Fe10F2A6005d9A843A866129b7274810
+          ONYX_QUOTER=0xf2346e79Ab9D92c5e6B5D949331F186a5e040461
+          ONYX_STABLESWAP=0x3Bf8E6EfF4850D8172c019CeEeA00787928162De
+          ONYX_TWAP=0x1081ea6642F8f67dc1ff8A40b8A60900c0180dBE
+
+          CCTP_TOKEN_MESSENGER=0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA
+          CCTP_MESSAGE_TRANSMITTER=0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275
+          CCTP_ARC_DOMAIN=26
+          CCTP_IRIS_URL=https://iris-api-sandbox.circle.com
+
+          DATABASE_URL=file:/data/flowbot.db
+
+          REFERRAL_FEE_BPS=0
+          MAX_SLIPPAGE_BPS=300
+          HIGH_IMPACT_WARN_BPS=100
+          RATE_LIMIT_PER_MIN=20
+          ENVFILE
+
+          echo "wrote flowbot/.env ($(wc -l < flowbot/.env) lines, mode $(stat -c %a flowbot/.env))"
+
+      - name: Config matches live Onyx deployment
+        working-directory: flowbot
+        run: node scripts/check-config.mjs
+
+      - name: Build and start
+        run: |
+          set -eu
+          docker compose up -d --build flowbot
+          docker compose ps flowbot
+
+      # Success criterion 1, asserted rather than assumed. The bot refuses to
+      # start on bad config, so a missing "[config] validated" means it either
+      # rejected the config or crashed — either way the deploy has failed and
+      # should go red instead of quietly leaving a dead container running.
+      - name: Verify startup validation passed
+        run: |
+          set -eu
+          for i in $(seq 1 30); do
+            logs="$(docker compose logs --tail=200 flowbot 2>&1 || true)"
+            case "$logs" in
+              *"[config] validated"*)
+                echo "✓ [config] validated — bot started cleanly"
+                exit 0
+                ;;
+              *"will not start"*)
+                echo "✗ startup validation rejected the configuration:" >&2
+                docker compose logs --tail=40 flowbot >&2
+                exit 1
+                ;;
+            esac
+            sleep 2
+          done
+          echo "✗ timed out waiting for [config] validated" >&2
+          docker compose logs --tail=40 flowbot >&2
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### FlowBot deploy"
+            echo ""
+            echo "- Mini App: https://onyx-dex.vercel.app/miniapp"
+            echo "- Chain: Arc testnet (5042002)"
+            echo ""
+            echo "Remaining checks are manual:"
+            echo "1. Send /start to the bot — expect the inline menu."
+            echo "2. Tap the Mini App button — expect the wallet screen."
+          } >> "$GITHUB_STEP_SUMMARY"
