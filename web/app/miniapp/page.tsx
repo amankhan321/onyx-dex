@@ -10,7 +10,8 @@ import {
   withUnlocked,
   type EncryptedKeystore,
 } from "@/lib/keystore";
-import { clearKeystore, loadKeystore, saveKeystore, storageMode, tg } from "@/lib/telegram";
+import { clearKeystore, loadAddress, loadKeystore, saveAddress, saveKeystore, storageMode, telegramSession, tg } from "@/lib/telegram";
+import { MiniApp } from "./MiniApp";
 import { arcTestnet } from "@/lib/contracts";
 
 /**
@@ -45,7 +46,7 @@ type Stage = "loading" | "onboard" | "backup" | "confirm-backup" | "ready" | "si
 const FALLBACK_MAX_VALUE = Number(process.env.NEXT_PUBLIC_FALLBACK_MAX_VALUE ?? "100");
 const ACK_KEY = "onyx_fallback_ack_v1";
 
-export default function MiniApp() {
+export default function MiniAppPage() {
   const [stage, setStage] = useState<Stage>("loading");
   const [keystore, setKeystore] = useState<EncryptedKeystore | null>(null);
   const [address, setAddress] = useState<`0x${string}` | null>(null);
@@ -89,8 +90,9 @@ export default function MiniApp() {
     }
 
     void (async () => {
-      const ks = await loadKeystore();
+      const [ks, addr] = await Promise.all([loadKeystore(), loadAddress()]);
       setKeystore(ks);
+      if (addr) setAddress(addr);
       setStage(ks ? "ready" : "onboard");
     })();
   }, []);
@@ -108,6 +110,7 @@ export default function MiniApp() {
       setKeystore(ks);
       setAddress(addr);
       await saveKeystore(ks);
+      await saveAddress(addr);
       setStage("backup");
     } catch (e) {
       fail(e);
@@ -126,6 +129,7 @@ export default function MiniApp() {
       setKeystore(ks);
       setAddress(addr);
       await saveKeystore(ks);
+      await saveAddress(addr);
       setStage("ready");
     } catch (e) {
       fail(e);
@@ -356,7 +360,11 @@ export default function MiniApp() {
         </section>
       )}
 
-      {stage === "ready" && (
+      {stage === "ready" && keystore && address && !tx && (
+        <MiniApp keystore={keystore} address={address} />
+      )}
+
+      {stage === "ready" && !(keystore && address && !tx) && (
         <section className="glass p-5">
           {address && (
             <p className="font-mono text-[11px] text-faint">

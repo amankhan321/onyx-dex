@@ -15,8 +15,45 @@ import type { EncryptedKeystore } from "./keystore";
 
 type StorageCb<T> = (err: string | null, value: T | null) => void;
 
+type MainButton = {
+  text: string;
+  isVisible: boolean;
+  showProgress: (leaveActive?: boolean) => void;
+  hideProgress: () => void;
+  setText: (t: string) => void;
+  show: () => void;
+  hide: () => void;
+  enable: () => void;
+  disable: () => void;
+  onClick: (cb: () => void) => void;
+  offClick: (cb: () => void) => void;
+  setParams: (p: { text?: string; color?: string; text_color?: string; is_active?: boolean; is_visible?: boolean }) => void;
+};
+
+type BackButton = {
+  isVisible: boolean;
+  show: () => void;
+  hide: () => void;
+  onClick: (cb: () => void) => void;
+  offClick: (cb: () => void) => void;
+};
+
 type TgWebApp = {
   initData: string;
+  version?: string;
+  platform?: string;
+  viewportStableHeight?: number;
+  viewportHeight?: number;
+  isExpanded?: boolean;
+  MainButton?: MainButton;
+  BackButton?: BackButton;
+  HapticFeedback?: {
+    impactOccurred: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void;
+    notificationOccurred: (type: "error" | "success" | "warning") => void;
+    selectionChanged: () => void;
+  };
+  onEvent?: (event: string, cb: () => void) => void;
+  offEvent?: (event: string, cb: () => void) => void;
   initDataUnsafe?: { user?: { id: number; username?: string; first_name?: string } };
   ready: () => void;
   expand: () => void;
@@ -143,4 +180,87 @@ export async function savePref(key: string, value: string) {
   } catch {
     /* nothing to do */
   }
+}
+
+
+/**
+ * Is this actually running inside Telegram with a real session?
+ *
+ * `initData` empty or a platform of "unknown" means the page was opened in a
+ * plain browser. The UI must say so rather than render a half-working screen —
+ * SecureStorage won't exist, and the user needs to know their key is landing in
+ * the weaker store.
+ */
+export function telegramSession(): { inApp: boolean; platform: string; version: string } {
+  const app = tg();
+  const platform = app?.platform ?? "unknown";
+  return {
+    inApp: Boolean(app && app.initData && app.initData.length > 0 && platform !== "unknown"),
+    platform,
+    version: app?.version ?? "0",
+  };
+}
+
+/** Raw initData, for server-side HMAC verification. Never a substitute for auth. */
+export const initData = () => tg()?.initData ?? "";
+
+/**
+ * Usable height. Telegram's viewport shrinks when the keyboard opens;
+ * viewportStableHeight excludes that, which is what layout should follow or the
+ * bottom nav jumps around while typing.
+ */
+export function stableHeight(): number {
+  const app = tg();
+  return app?.viewportStableHeight ?? app?.viewportHeight ?? (typeof window !== "undefined" ? window.innerHeight : 0);
+}
+
+export function expand() {
+  tg()?.expand();
+}
+
+export const haptic = {
+  tap: () => tg()?.HapticFeedback?.impactOccurred("light"),
+  confirm: () => tg()?.HapticFeedback?.impactOccurred("medium"),
+  success: () => tg()?.HapticFeedback?.notificationOccurred("success"),
+  error: () => tg()?.HapticFeedback?.notificationOccurred("error"),
+  select: () => tg()?.HapticFeedback?.selectionChanged(),
+};
+
+export const mainButton = () => tg()?.MainButton ?? null;
+export const backButton = () => tg()?.BackButton ?? null;
+
+
+/**
+ * The wallet's public address, cached so the app can render on open without
+ * asking for a password. An address is public data — this is DeviceStorage
+ * (non-sensitive), never SecureStorage, and never anything derived from a key.
+ */
+const ADDRESS_KEY = "onyx_address_v1";
+
+export async function saveAddress(address: string) {
+  const app = tg();
+  if (app?.DeviceStorage) {
+    await p<boolean>((cb) => app.DeviceStorage!.setItem(ADDRESS_KEY, address, cb));
+    return;
+  }
+  try {
+    localStorage.setItem(ADDRESS_KEY, address);
+  } catch {
+    /* nothing to do */
+  }
+}
+
+export async function loadAddress(): Promise<`0x${string}` | null> {
+  const app = tg();
+  let v: string | null = null;
+  if (app?.DeviceStorage) {
+    v = await p<string>((cb) => app.DeviceStorage!.getItem(ADDRESS_KEY, cb));
+  } else {
+    try {
+      v = localStorage.getItem(ADDRESS_KEY);
+    } catch {
+      v = null;
+    }
+  }
+  return v && /^0x[0-9a-fA-F]{40}$/.test(v) ? (v as `0x${string}`) : null;
 }
