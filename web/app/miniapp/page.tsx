@@ -64,6 +64,7 @@ export default function MiniAppPage() {
   const [copied, setCopied] = useState(false);
   const [cloudOptIn, setCloudOptIn] = useState(true);
   const [tierFailures, setTierFailures] = useState<{ tier: string; reason: string }[]>([]);
+  const [durableUnsupported, setDurableUnsupported] = useState(false);
   const [mode_, setStorage] = useState<"secure" | "fallback">("secure");
   const [ackedFallback, setAcked] = useState(false);
 
@@ -116,11 +117,15 @@ export default function MiniAppPage() {
       return;
     }
     if (res.status === "error") {
+      // Only reachable when a SUPPORTED tier failed and nothing was found.
       setTierFailures(res.failures);
       setStage("storage-error");
       return;
     }
+    // Genuinely empty. If neither durable tier exists on this client, say so —
+    // the user may well have a wallet that this Telegram build simply can't see.
     setTierFailures([]);
+    setDurableUnsupported(res.durableUnsupported);
     setStage("onboard");
   }, []);
 
@@ -243,21 +248,13 @@ export default function MiniAppPage() {
 
       {error && <Note tone="error">{error}</Note>}
 
-      {!telegramSession().inApp && stage !== "loading" && (
-        <Note tone="warn">
-          <strong>Opened outside Telegram.</strong> Telegram&apos;s secure and cloud storage
-          aren&apos;t available here, so a wallet created now lives only in this browser
-          and will not sync to your account. Open Onyx from the bot to set up properly.
-        </Note>
-      )}
-
       {stage === "storage-error" && (
         <section className="glass p-5">
           <h1 className="text-base font-medium text-fg">Couldn&apos;t reach your wallet</h1>
           <p className="mt-2 text-xs leading-relaxed text-faint">
-            One or more storage locations didn&apos;t respond, so we can&apos;t tell whether
-            you have a wallet here. We won&apos;t ask you to set up a new one until we
-            know for sure — that could overwrite an existing wallet.
+            A storage location that normally works didn&apos;t respond, so we can&apos;t
+            tell whether you have a wallet here. We won&apos;t offer to create a new one
+            until we know — that could leave an existing wallet stranded.
           </p>
           <ul className="mt-3 space-y-1">
             {tierFailures.map((f) => (
@@ -273,7 +270,7 @@ export default function MiniAppPage() {
             Try again
           </button>
           <p className="mt-2 text-center text-[10px] text-faint">
-            If this persists, check your connection or update Telegram.
+            Usually a connection problem — this should clear on its own.
           </p>
         </section>
       )}
@@ -282,6 +279,19 @@ export default function MiniAppPage() {
         <div className="flex items-center gap-2 text-sm text-muted">
           <Loader2 size={14} className="animate-spin" /> Loading…
         </div>
+      )}
+
+      {stage === "onboard" && (durableUnsupported || !telegramSession().inApp) && (
+        <Note tone="warn">
+          <strong>
+            {telegramSession().inApp
+              ? "This version of Telegram can't reach your synced wallet."
+              : "Opened outside Telegram."}
+          </strong>{" "}
+          {telegramSession().inApp
+            ? "If you already have an Onyx wallet, open Onyx from the Telegram mobile app to reach it — creating one here makes a separate wallet stored only on this device."
+            : "Telegram's secure and cloud storage aren't available in a plain browser, so a wallet created here lives only in this browser and won't sync. Open Onyx from the bot to set up properly."}
+        </Note>
       )}
 
       {stage === "onboard" && mode_ === "fallback" && !ackedFallback && (

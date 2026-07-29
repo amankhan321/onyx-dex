@@ -88,6 +88,16 @@ export type EncryptedKeystore = {
    * check, not an authenticity one.
    */
   integrity?: string;
+  /**
+   * Monotonic write counter, from v2.
+   *
+   * Multi-tier writes aren't atomic: changePassword re-encrypts and writes to
+   * every tier, and if one write fails the tiers end up on different passwords.
+   * Boot would then resolve a stale blob and reject the user's correct new
+   * password. The epoch makes "which of these is current" answerable, so the
+   * newest wins and the others are healed toward it.
+   */
+  epoch?: number;
 };
 
 export type UnlockedWallet = {
@@ -156,7 +166,11 @@ function privateKeyFromMnemonic(mnemonic: string): Uint8Array {
   return pk;
 }
 
-async function encryptPrivateKey(pk: Uint8Array, password: string): Promise<EncryptedKeystore> {
+async function encryptPrivateKey(
+  pk: Uint8Array,
+  password: string,
+  epoch = 1,
+): Promise<EncryptedKeystore> {
   const salt = randomBytes(SALT_BYTES);
   const iv = randomBytes(IV_BYTES);
   const key = await deriveAesKey(password, salt);
@@ -171,6 +185,7 @@ async function encryptPrivateKey(pk: Uint8Array, password: string): Promise<Encr
     iv: toHex(iv),
     ciphertext: toHex(ct),
     integrity: computeIntegrity(salt, iv, ct),
+    epoch,
   };
 }
 
@@ -351,7 +366,8 @@ export async function changePassword(
   }
 
   try {
-    return await encryptPrivateKey(pk, newPassword);
+    // Advance the epoch so a tier that missed this write is identifiably stale.
+    return await encryptPrivateKey(pk, newPassword, (keystore.epoch ?? 0) + 1);
   } finally {
     zero(pk);
   }

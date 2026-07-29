@@ -152,18 +152,34 @@ export function storageMode(): "secure" | "fallback" {
 }
 
 export type TierRead =
-  | { status: "found"; raw: string }
+  | { status: "value"; raw: string }
   | { status: "empty" }
+  | { status: "unsupported" }
   | { status: "error"; reason: string };
 
 /**
- * Promise wrapper that PRESERVES the error, unlike p().
+ * Does this error mean "this client can't do that" rather than "that failed"?
  *
- * Telegram calls back with (err, value). err set = the read failed: offline,
- * rate-limited, or the client is too old to have the API. err null with an
- * empty value = there is genuinely nothing stored. Those two must never be
- * conflated — an error treated as "empty" is exactly how a user gets sent to
- * the import screen while their wallet sits safely in the cloud.
+ * This distinction is the whole bug: Telegram exposes the SecureStorage and
+ * CloudStorage objects on clients that don't actually implement the methods, so
+ * a feature check on the property passes and the CALL then fails with
+ * WebAppMethodUnsupported. Treating that as an error produced a retry screen
+ * that could never succeed — the method will never become supported on that
+ * client. Unsupported is a permanent, expected state, not a failure.
+ */
+function isUnsupported(err: unknown): boolean {
+  const s = String(err);
+  return /unsupported|not\s*supported|unknown method|WebAppMethodUnsupported/i.test(s);
+}
+
+/**
+ * Promise wrapper preserving the FOUR outcomes.
+ *
+ * Telegram calls back with (err, value):
+ *   err mentions unsupported → this client lacks the method entirely
+ *   err otherwise            → present but failed: offline, rate-limited
+ *   no err, empty value      → definitively nothing stored
+ *   no err, value            → found
  */
 function pRead(fn: (cb: StorageCb<string>) => void): Promise<TierRead> {
   return new Promise((resolve) => {
@@ -174,45 +190,55 @@ function pRead(fn: (cb: StorageCb<string>) => void): Promise<TierRead> {
         resolve(r);
       }
     };
-    // A callback that never fires would hang the boot screen forever.
     const timer = setTimeout(() => done({ status: "error", reason: "timed out" }), 8000);
     try {
       fn((err, value) => {
         clearTimeout(timer);
-        if (err) return done({ status: "error", reason: String(err).slice(0, 120) });
+        if (err) {
+          return done(
+            isUnsupported(err)
+              ? { status: "unsupported" }
+              : { status: "error", reason: String(err).slice(0, 120) },
+          );
+        }
         if (value === null || value === undefined || value === "") return done({ status: "empty" });
-        done({ status: "found", raw: value });
+        done({ status: "value", raw: value });
       });
     } catch (e) {
       clearTimeout(timer);
-      done({ status: "error", reason: e instanceof Error ? e.message.slice(0, 120) : "threw" });
+      // A synchronous throw from a missing method is also just unsupported.
+      done(
+        isUnsupported(e)
+          ? { status: "unsupported" }
+          : { status: "error", reason: e instanceof Error ? e.message.slice(0, 120) : "threw" },
+      );
     }
   });
 }
 
 async function readSecureTier(): Promise<TierRead> {
   const app = tg();
-  if (!app?.SecureStorage) return { status: "empty" }; // absent API = nothing here, not a failure
+  if (!app?.SecureStorage) return { status: "unsupported" };
   const first = await pRead((cb) => app.SecureStorage!.getItem(KEYSTORE_KEY, cb));
-  if (first.status === "found" || first.status === "error") return first;
+  if (first.status !== "empty") return first;
   if (app.SecureStorage.restoreItem) {
-    return pRead((cb) => app.SecureStorage!.restoreItem!(KEYSTORE_KEY, cb));
+    const restored = await pRead((cb) => app.SecureStorage!.restoreItem!(KEYSTORE_KEY, cb));
+    // A failed restore of a key we already know is absent is still just absent.
+    return restored.status === "value" ? restored : { status: "empty" };
   }
   return { status: "empty" };
 }
 
 async function readCloudTier(): Promise<TierRead> {
   const app = tg();
-  // No CloudStorage API at all (client < 6.9) is a definitive "nothing here" —
-  // it cannot be holding a blob. A present-but-failing API is an error.
-  if (!app?.CloudStorage) return { status: "empty" };
+  if (!app?.CloudStorage) return { status: "unsupported" };
   return pRead((cb) => app.CloudStorage!.getItem(KEYSTORE_KEY, cb));
 }
 
 function readLocalTier(): TierRead {
   try {
     const v = localStorage.getItem(KEYSTORE_KEY);
-    return v ? { status: "found", raw: v } : { status: "empty" };
+    return v ? { status: "value", raw: v } : { status: "empty" };
   } catch (e) {
     return { status: "error", reason: e instanceof Error ? e.message.slice(0, 120) : "unavailable" };
   }
@@ -258,62 +284,125 @@ export async function loadKeystore(): Promise<EncryptedKeystore | null> {
 }
 
 export type Resolution =
-  | { status: "found"; keystore: EncryptedKeystore; tier: StorageTier }
-  | { status: "empty" }
+  | {
+      status: "found";
+      keystore: EncryptedKeystore;
+      tier: StorageTier;
+      /** Tiers that failed while a usable copy was found elsewhere. Non-blocking. */
+      degraded: { tier: StorageTier; reason: string }[];
+    }
+  | {
+      status: "empty";
+      /** True when neither durable tier exists on this client. */
+      durableUnsupported: boolean;
+    }
   | { status: "error"; failures: { tier: StorageTier; reason: string }[] };
 
+const parseBlob = (raw: string): EncryptedKeystore | null => {
+  try {
+    const v = JSON.parse(raw);
+    return v && (v.version === 1 || v.version === 2) && v.ciphertext ? (v as EncryptedKeystore) : null;
+  } catch {
+    return null;
+  }
+};
+
+const epochOf = (k: EncryptedKeystore) => (typeof k.epoch === "number" ? k.epoch : 0);
+
+async function writeTier(tier: StorageTier, blob: string): Promise<void> {
+  const app = tg();
+  try {
+    if (tier === "secure" && app?.SecureStorage) {
+      await p<boolean>((cb) => app.SecureStorage!.setItem(KEYSTORE_KEY, blob, cb));
+    } else if (tier === "cloud" && app?.CloudStorage) {
+      await p<boolean>((cb) => app.CloudStorage!.setItem(KEYSTORE_KEY, blob, cb));
+    } else if (tier === "local") {
+      localStorage.setItem(KEYSTORE_KEY, blob);
+    }
+  } catch {
+    /* healing is best-effort; a failure here must never block boot */
+  }
+}
+
 /**
- * Resolve across all tiers with failures kept distinct from absences.
+ * Resolve the wallet across every tier.
  *
- * "empty" — and therefore the setup/import screen — is returned ONLY when every
- * tier answered definitively that it holds nothing. If any tier errored, the
- * caller gets "error" and must offer a retry, because a wallet may well exist
- * behind that failure.
+ * Boot rule, in order of importance:
+ *  1. If ANY tier produced a usable blob, boot. Other tiers being unsupported or
+ *     failing is irrelevant — a working cloud copy is sufficient on its own.
+ *  2. Retry is shown ONLY when a SUPPORTED tier errored and nothing produced a
+ *     value. An unsupported method can never start working, so it must never
+ *     lead to a retry button.
+ *  3. Otherwise the wallet genuinely isn't here and setup is correct.
+ *
+ * All tiers are read in parallel rather than first-hit-wins, because they can
+ * disagree: a partially-failed multi-tier write leaves an old blob somewhere,
+ * and booting from a stale one would reject the user's correct current password.
+ * The highest epoch wins and the others are healed toward it.
  */
 export async function resolveKeystoreDetailed(): Promise<Resolution> {
-  const parse = (raw: string): EncryptedKeystore | null => {
-    try {
-      const v = JSON.parse(raw);
-      return v && (v.version === 1 || v.version === 2) && v.ciphertext ? (v as EncryptedKeystore) : null;
-    } catch {
-      return null;
-    }
-  };
+  const [secure, cloud, local] = await Promise.all([
+    readSecureTier(),
+    readCloudTier(),
+    Promise.resolve(readLocalTier()),
+  ]);
 
-  const failures: { tier: StorageTier; reason: string }[] = [];
-  const order: [StorageTier, () => Promise<TierRead> | TierRead][] = [
-    ["secure", readSecureTier],
-    ["cloud", readCloudTier],
-    ["local", readLocalTier],
+  const reads: [StorageTier, TierRead][] = [
+    ["secure", secure],
+    ["cloud", cloud],
+    ["local", local],
   ];
 
-  for (const [tier, read] of order) {
-    const res = await read();
-    if (res.status === "error") {
-      failures.push({ tier, reason: res.reason });
-      continue;
-    }
-    if (res.status === "empty") continue;
+  const failures: { tier: StorageTier; reason: string }[] = [];
+  const candidates: { tier: StorageTier; keystore: EncryptedKeystore }[] = [];
 
-    const ks = parse(res.raw);
-    if (!ks) {
-      // Unparseable is a failure, not an absence — the bytes exist and are wrong.
-      failures.push({ tier, reason: "stored data could not be read" });
-      continue;
+  for (const [tier, res] of reads) {
+    if (res.status === "error") failures.push({ tier, reason: res.reason });
+    else if (res.status === "value") {
+      const ks = parseBlob(res.raw);
+      if (ks) candidates.push({ tier, keystore: ks });
+      // Bytes that exist but don't parse are a real failure, not an absence.
+      else failures.push({ tier, reason: "stored data could not be read" });
     }
-    if (tier === "cloud") {
-      const app = tg();
-      if (app?.SecureStorage) {
-        await p<boolean>((cb) => app.SecureStorage!.setItem(KEYSTORE_KEY, JSON.stringify(ks), cb));
-      }
-    }
-    return { status: "found", keystore: ks, tier };
   }
 
-  return failures.length > 0 ? { status: "error", failures } : { status: "empty" };
+  if (candidates.length > 0) {
+    // Highest epoch wins; ties prefer the earlier (faster, more local) tier.
+    const order: StorageTier[] = ["secure", "cloud", "local"];
+    candidates.sort((a, b) => {
+      const d = epochOf(b.keystore) - epochOf(a.keystore);
+      return d !== 0 ? d : order.indexOf(a.tier) - order.indexOf(b.tier);
+    });
+    const winner = candidates[0];
+    const blob = JSON.stringify(winner.keystore);
+
+    // Heal every tier that is missing this blob or holds an older epoch. Silent
+    // and best-effort — the user is already booting.
+    void (async () => {
+      for (const [tier, res] of reads) {
+        if (tier === winner.tier) continue;
+        const existing = candidates.find((c) => c.tier === tier);
+        const stale = existing ? epochOf(existing.keystore) < epochOf(winner.keystore) : res.status === "empty";
+        if (stale) await writeTier(tier, blob);
+      }
+    })();
+
+    return { status: "found", keystore: winner.keystore, tier: winner.tier, degraded: failures };
+  }
+
+  // Nothing found. Only a SUPPORTED tier's failure justifies blocking.
+  if (failures.length > 0) return { status: "error", failures };
+
+  const durableUnsupported = secure.status === "unsupported" && cloud.status === "unsupported";
+  return { status: "empty", durableUnsupported };
 }
 
 export async function resolveKeystore(): Promise<{ keystore: EncryptedKeystore; tier: StorageTier } | null> {
+  const r = await resolveKeystoreDetailed();
+  return r.status === "found" ? { keystore: r.keystore, tier: r.tier } : null;
+}
+
+async function _unusedResolve(): Promise<{ keystore: EncryptedKeystore; tier: StorageTier } | null> {
   const parse = (raw: string | null): EncryptedKeystore | null => {
     if (!raw) return null;
     try {
