@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDownUp, Download, ListOrdered, Wallet } from "lucide-react";
+import { ArrowDownUp, Check, Copy, Download, ListOrdered, Wallet } from "lucide-react";
 import { SignerProvider, useKeystoreSigner } from "@/lib/signer";
 import { loadKeystore, storageMode, telegramSession, expand, stableHeight, backButton, haptic } from "@/lib/telegram";
 import type { EncryptedKeystore } from "@/lib/keystore";
@@ -31,6 +31,36 @@ export function MiniApp({ keystore, address }: { keystore: EncryptedKeystore; ad
   const [tab, setTab] = useState<Tab>("swap");
   const [height, setHeight] = useState<number>(0);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  /**
+   * Copy the FULL address, not the truncated form shown on screen — a truncated
+   * address pasted into a send field would lose funds. Falls back to a hidden
+   * textarea because Telegram's webview doesn't always expose the clipboard API.
+   */
+  const copyAddress = useCallback(async () => {
+    haptic.tap();
+    try {
+      await navigator.clipboard.writeText(address);
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = address;
+      el.setAttribute("readonly", "");
+      el.style.position = "fixed";
+      el.style.opacity = "0";
+      document.body.appendChild(el);
+      el.select();
+      try {
+        document.execCommand("copy");
+      } catch {
+        /* clipboard unavailable; the address is still visible to read */
+      }
+      document.body.removeChild(el);
+    }
+    setCopied(true);
+    haptic.success();
+    setTimeout(() => setCopied(false), 1600);
+  }, [address]);
 
   // The pending password request: the signer awaits this promise while the
   // modal is open. Nothing is stored — the resolver is dropped once used.
@@ -127,9 +157,18 @@ export function MiniApp({ keystore, address }: { keystore: EncryptedKeystore; ad
               Testnet
             </span>
           </div>
-          <span className="font-mono text-[10px] text-faint">
+          <button
+            onClick={copyAddress}
+            aria-label={copied ? "Address copied" : "Copy wallet address"}
+            className="flex items-center gap-1.5 rounded-full border border-[color:var(--line)] px-2.5 py-1 font-mono text-[10px] text-muted transition-colors active:bg-white/5"
+          >
             {address.slice(0, 6)}…{address.slice(-4)}
-          </span>
+            {copied ? (
+              <Check size={11} className="text-mint" />
+            ) : (
+              <Copy size={11} className="text-faint" />
+            )}
+          </button>
         </header>
 
         {fallbackCap && (
