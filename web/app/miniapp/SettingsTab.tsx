@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Cloud, CloudOff, KeyRound, Loader2 } from "lucide-react";
+import { Check, Cloud, CloudOff, Info, KeyRound, Loader2, Trash2 } from "lucide-react";
 import {
   KeystoreCorruptError,
   WrongPasswordError,
@@ -11,10 +11,14 @@ import {
 import { checkPasswordStrength } from "@/lib/passwordStrength";
 import {
   backupToCloud,
+  clearKeystore,
+  clearKeystoreLocal,
   isInCloud,
   removeFromCloud,
   saveKeystore,
+  telegramDiagnostics,
   tiersAvailable,
+  waitForTelegram,
 } from "@/lib/telegram";
 import { haptic } from "@/lib/telegram";
 
@@ -48,6 +52,19 @@ export function SettingsTab({
   const running = useRef(false);
 
   const cloudAvailable = tiersAvailable().cloud;
+  const [diag, setDiag] = useState(telegramDiagnostics());
+  const [removing, setRemoving] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [wipeEverywhere, setWipeEverywhere] = useState(false);
+
+  // Re-read once the SDK has attached so diagnostics reflect reality, not the
+  // state of the world before the script loaded.
+  useEffect(() => {
+    void (async () => {
+      await waitForTelegram();
+      setDiag(telegramDiagnostics());
+    })();
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!cloudAvailable) return setInCloud(false);
@@ -238,6 +255,108 @@ export function SettingsTab({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      </section>
+
+      <section className="inner p-4">
+        <div className="flex items-start gap-2">
+          <Trash2 size={15} className="mt-0.5 text-rose" />
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-fg">Remove wallet</h3>
+            {!removing ? (
+              <>
+                <p className="mt-1 text-[11px] leading-relaxed text-faint">
+                  Removes the wallet from this device. Your Telegram cloud backup is kept
+                  unless you choose otherwise.
+                </p>
+                <button
+                  onClick={() => setRemoving(true)}
+                  className="mt-3 w-full rounded-full border border-rose/40 py-2 text-xs text-rose"
+                >
+                  Remove wallet…
+                </button>
+              </>
+            ) : (
+              <div className="mt-2 space-y-2">
+                <label className="flex items-start gap-2 text-[11px] leading-relaxed text-muted">
+                  <input
+                    type="checkbox"
+                    checked={wipeEverywhere}
+                    onChange={(e) => setWipeEverywhere(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Also delete the Telegram cloud backup.{" "}
+                    <span className="text-rose">
+                      This removes it from every device permanently — only your recovery
+                      phrase could restore it.
+                    </span>
+                  </span>
+                </label>
+                <p className="text-[11px] text-faint">
+                  Type <span className="font-mono text-fg">REMOVE</span> to confirm.
+                </p>
+                <input
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  placeholder="REMOVE"
+                  autoComplete="off"
+                  className="w-full rounded-lg border border-[color:var(--line)] bg-transparent px-3 py-2 font-mono text-xs text-fg outline-none"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setRemoving(false);
+                      setConfirmText("");
+                      setWipeEverywhere(false);
+                    }}
+                    className="flex-1 rounded-full border border-[color:var(--line)] py-2 text-xs text-muted"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (confirmText !== "REMOVE") return;
+                      if (wipeEverywhere) await clearKeystore();
+                      else await clearKeystoreLocal();
+                      location.reload();
+                    }}
+                    disabled={confirmText !== "REMOVE"}
+                    className="flex-1 rounded-full bg-rose py-2 text-xs font-semibold text-white disabled:opacity-30"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="inner p-4">
+        <div className="flex items-start gap-2">
+          <Info size={15} className="mt-0.5 text-faint" />
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-fg">Diagnostics</h3>
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[10px] text-faint">
+              <dt>Telegram</dt>
+              <dd className="text-fg">{diag.present ? `v${diag.version}` : "not detected"}</dd>
+              <dt>Platform</dt>
+              <dd className="text-fg">{diag.platform}</dd>
+              <dt>SecureStorage</dt>
+              <dd className={diag.secure ? "text-mint" : "text-yellow-600"}>
+                {diag.secure ? "available" : "unavailable"}
+              </dd>
+              <dt>CloudStorage</dt>
+              <dd className={diag.cloud ? "text-mint" : "text-yellow-600"}>
+                {diag.cloud ? "available" : "unavailable"}
+              </dd>
+              <dt>Local storage</dt>
+              <dd className={diag.local ? "text-mint" : "text-rose"}>
+                {diag.local ? "available" : "unavailable"}
+              </dd>
+            </dl>
           </div>
         </div>
       </section>

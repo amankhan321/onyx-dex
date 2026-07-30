@@ -85,6 +85,46 @@ export function tg(): TgWebApp | null {
 export const inTelegram = () => tg() !== null;
 
 /**
+ * Wait for the Telegram SDK to attach.
+ *
+ * The script is loaded beforeInteractive, but a webview can still attach
+ * window.Telegram a tick late. Computing tiers before then reports "no
+ * SecureStorage" on a perfectly capable client and latches the degraded banner
+ * and the 100 USDC cap for the whole session. Polling briefly costs nothing and
+ * removes a whole class of false negatives.
+ */
+export function waitForTelegram(timeoutMs = 2000): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  if (tg()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const id = setInterval(() => {
+      if (tg()) {
+        clearInterval(id);
+        resolve(true);
+      } else if (Date.now() - started > timeoutMs) {
+        clearInterval(id);
+        resolve(false);
+      }
+    }, 50);
+  });
+}
+
+/** Version, platform and detected tiers — for the diagnostics row. No secrets. */
+export function telegramDiagnostics() {
+  const app = tg();
+  const tiers = tiersAvailable();
+  return {
+    present: Boolean(app),
+    version: app?.version ?? "—",
+    platform: app?.platform ?? "unknown",
+    secure: tiers.secure,
+    cloud: tiers.cloud,
+    local: tiers.local,
+  };
+}
+
+/**
  * Which storage the encrypted blob will actually land in.
  *
  *  "secure"   — Telegram SecureStorage (Bot API 9.0+). OS-backed, isolated per
@@ -481,7 +521,28 @@ export async function removeFromCloud(): Promise<boolean> {
   return ok !== null;
 }
 
-/** Wipe every tier. Irreversible without the recovery phrase. */
+/**
+ * Remove the wallet from THIS DEVICE only, leaving the Telegram cloud copy
+ * intact so other devices — and this one, later — can still restore it.
+ *
+ * The previous single function wiped the cloud copy too while the button said
+ * "from this device", which silently destroyed the backup everywhere.
+ */
+export async function clearKeystoreLocal(): Promise<void> {
+  const app = tg();
+  if (app?.SecureStorage) await p<boolean>((cb) => app.SecureStorage!.removeItem(KEYSTORE_KEY, cb));
+  try {
+    localStorage.removeItem(KEYSTORE_KEY);
+  } catch {
+    /* nothing to do */
+  }
+}
+
+/**
+ * Wipe EVERY tier including the Telegram cloud backup. Irreversible without the
+ * recovery phrase, on every device. Only ever call this behind an explicit,
+ * typed confirmation.
+ */
 export async function clearKeystore(): Promise<void> {
   const app = tg();
   if (app?.SecureStorage) await p<boolean>((cb) => app.SecureStorage!.removeItem(KEYSTORE_KEY, cb));

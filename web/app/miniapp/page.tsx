@@ -13,6 +13,8 @@ import {
 import { clearKeystore, loadAddress, resolveKeystoreDetailed, saveAddress, saveKeystore, storageMode, telegramSession, tg } from "@/lib/telegram";
 import { MiniApp } from "./MiniApp";
 import { checkPasswordStrength } from "@/lib/passwordStrength";
+import { KeystoreCorruptError, WrongPasswordError } from "@/lib/keystore";
+import { waitForTelegram } from "@/lib/telegram";
 import { tiersAvailable } from "@/lib/telegram";
 import { arcTestnet } from "@/lib/contracts";
 
@@ -38,7 +40,7 @@ type Unsigned = {
   /** Whole-token value moved, used for the less-secure-storage cap. */
   capValue?: number;
 };
-type Stage = "loading" | "storage-error" | "onboard" | "backup" | "confirm-backup" | "ready" | "signing" | "done";
+type Stage = "loading" | "storage-error" | "onboard" | "unlock" | "backup" | "confirm-backup" | "ready" | "signing" | "done";
 
 /**
  * Cap on what may be signed while the blob sits in the weaker fallback store.
@@ -78,6 +80,35 @@ export default function MiniAppPage() {
    * re-renders the disabled button. A ref closes that window.
    */
   const running = useRef(false);
+  const [unlockPw, setUnlockPw] = useState("");
+  const unlocking = useRef(false);
+
+  /**
+   * First open on a new device. Derives the address from the key inside
+   * withUnlocked(), which wipes it in a finally block exactly as the signing
+   * path does, then caches the address DEVICE-LOCALLY — never to CloudStorage,
+   * so the user's address stays off Telegram's servers.
+   */
+  async function onUnlock() {
+    if (unlocking.current || !keystore) return;
+    unlocking.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const addr = await withUnlocked(keystore, unlockPw, async (w) => w.address);
+      await saveAddress(addr);
+      setAddress(addr);
+      setUnlockPw("");
+      setStage("ready");
+    } catch (e) {
+      if (e instanceof WrongPasswordError) setError("Wrong password.");
+      else if (e instanceof KeystoreCorruptError) setError(e.message);
+      else setError(e instanceof Error ? e.message : "Could not unlock.");
+    } finally {
+      unlocking.current = false;
+      setBusy(false);
+    }
+  }
   const [tierFailures, setTierFailures] = useState<{ tier: string; reason: string }[]>([]);
   const [durableUnsupported, setDurableUnsupported] = useState(false);
   const [mode_, setStorage] = useState<"secure" | "fallback">("secure");
@@ -122,13 +153,20 @@ export default function MiniAppPage() {
    */
   const boot = useCallback(async () => {
     setStage("loading");
+    // Don't probe storage before the SDK has attached — an early probe reports
+    // no SecureStorage on a capable client.
+    await waitForTelegram();
     const [res, addr] = await Promise.all([resolveKeystoreDetailed(), loadAddress()]);
     if (addr) setAddress(addr);
 
     if (res.status === "found") {
       setKeystore(res.keystore);
       setTierFailures([]);
-      setStage("ready");
+      // The address is stored device-locally and deliberately never synced, so
+      // a wallet restored from CloudStorage arrives without one. That's a new
+      // device, not a broken wallet: ask for the password once, derive the
+      // address from the key, and carry on. Setup must never reappear here.
+      setStage(addr ? "ready" : "unlock");
       return;
     }
     if (res.status === "error") {
@@ -302,6 +340,42 @@ export default function MiniAppPage() {
         </div>
       )}
 
+      {stage === "unlock" && (
+        <section className="glass p-5">
+          <h1 className="text-base font-medium text-fg">Welcome back</h1>
+          <p className="mt-1 text-xs leading-relaxed text-faint">
+            Your wallet was restored from your Telegram account. Enter your password to
+            unlock it on this device — you&apos;ll only be asked this once here.
+          </p>
+          <input
+            type="password"
+            value={unlockPw}
+            onChange={(e) => setUnlockPw(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && unlockPw && !busy && void onUnlock()}
+            placeholder="Wallet password"
+            autoComplete="off"
+            className="mt-4 w-full rounded-lg border border-[color:var(--line)] bg-transparent px-3 py-2.5 font-mono text-sm text-fg outline-none placeholder:text-faint/50"
+          />
+          <button
+            onClick={() => void onUnlock()}
+            disabled={busy || !unlockPw}
+            className="cta mt-4 flex w-full items-center justify-center gap-2 bg-indigo py-2.5 text-sm font-semibold text-white disabled:opacity-30"
+          >
+            {busy && <Loader2 size={14} className="animate-spin" />}
+            {busy ? "Unlocking…" : "Unlock wallet"}
+          </button>
+          {busy && (
+            <p className="mt-2 text-center text-[10px] leading-relaxed text-faint">
+              Deriving your key — a few seconds. Please don&apos;t close this.
+            </p>
+          )}
+          <p className="mt-3 text-center text-[10px] leading-relaxed text-faint">
+            Forgotten it? Only your recovery phrase can restore this wallet — the password
+            can&apos;t be reset by anyone.
+          </p>
+        </section>
+      )}
+
       {stage === "onboard" && (durableUnsupported || !telegramSession().inApp) && (
         <Note tone="warn">
           <strong>
@@ -380,7 +454,7 @@ export default function MiniAppPage() {
             value={password}
             onChange={setPassword}
             type="password"
-            placeholder="min 10 chars, letters + numbers"
+            placeholder="at least 12 characters"
           />
           {pwCheck && (
             <p className={`mt-1.5 text-[10px] leading-relaxed ${pwOk ? "text-mint" : "text-rose"}`}>
@@ -524,20 +598,17 @@ export default function MiniAppPage() {
             <>
               <h1 className="mt-1 text-base font-medium text-fg">Wallet ready</h1>
               <p className="mt-1 text-xs leading-relaxed text-faint">
-                Head back to the bot and pick a trade. This screen opens again to confirm
-                and sign it.
+                Opening Onyx…
               </p>
               <button
-                onClick={async () => {
-                  await clearKeystore();
-                  setKeystore(null);
-                  setAddress(null);
-                  setStage("onboard");
-                }}
-                className="mt-4 w-full py-2 text-xs text-rose"
+                onClick={() => void boot()}
+                className="cta mt-4 w-full bg-indigo py-2.5 text-sm font-semibold text-white"
               >
-                Remove wallet from this device
+                Open Onyx
               </button>
+              <p className="mt-2 text-center text-[10px] text-faint">
+                Removing this wallet lives in Settings, inside the app.
+              </p>
             </>
           )}
         </section>

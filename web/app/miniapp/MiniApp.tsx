@@ -9,7 +9,7 @@ import { unlock as unlockKeystore, type UnlockedWallet } from "@/lib/keystore";
 import { UnlockModal } from "./Unlock";
 import { SwapTab } from "./SwapTab";
 import { SettingsTab } from "./SettingsTab";
-import { isInCloud, tiersAvailable, backupToCloud, initData } from "@/lib/telegram";
+import { isInCloud, tiersAvailable, backupToCloud, initData, waitForTelegram } from "@/lib/telegram";
 
 const FALLBACK_MAX_VALUE = Number(process.env.NEXT_PUBLIC_FALLBACK_MAX_VALUE ?? "100");
 /** Idle window for a session unlock — the hard cap regardless of activity. */
@@ -57,6 +57,27 @@ export function MiniApp({
   const [txHash, setTxHash] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [offerBackup, setOfferBackup] = useState(false);
+
+  /**
+   * Storage mode is STATE, not a render-time call.
+   *
+   * Computing it inline meant a late-attaching SDK produced a permanent
+   * "less-secure storage" banner and a 100 USDC cap on a fully capable client,
+   * with no re-check once the SDK arrived. We start optimistic (no warning),
+   * wait for the SDK, then report what detection actually finds — so the
+   * warning and cap appear only when the client genuinely lacks a secure tier.
+   */
+  const [secureTier, setSecureTier] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      await waitForTelegram();
+      if (alive) setSecureTier(tiersAvailable().secure);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   /**
    * Existing users set up before cloud backup existed have a device-only
@@ -316,7 +337,9 @@ export function MiniApp({
     pending.current = null;
   };
 
-  const fallbackCap = storageMode() === "fallback" && FALLBACK_MAX_VALUE > 0 ? FALLBACK_MAX_VALUE : null;
+  // null = still detecting; withhold the warning rather than flashing a false one.
+  const fallbackCap =
+    secureTier === false && FALLBACK_MAX_VALUE > 0 ? FALLBACK_MAX_VALUE : null;
 
   return (
     <SignerProvider signer={signer}>

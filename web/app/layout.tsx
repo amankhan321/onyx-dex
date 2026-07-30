@@ -1,3 +1,4 @@
+import Script from "next/script";
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
@@ -21,10 +22,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" data-theme="dark">
       <head>
-        {/* Telegram Mini App SDK — provides SecureStorage (Bot API 9.0) and
-            initData. Harmless outside Telegram; window.Telegram stays undefined
-            and /miniapp falls back to browser storage with a visible warning. */}
-        <script src="https://telegram.org/js/telegram-web-app.js" async />
+        {/* Telegram Mini App SDK.
+            ?59 busts the webview cache — without it Telegram can keep serving a
+            stale SDK after the app updates, so newer APIs look absent.
+            beforeInteractive (not async) so window.Telegram exists before first
+            paint; otherwise tier detection runs too early, reports no
+            SecureStorage on a capable client, and latches the degraded banner. */}
+        <Script
+          src="https://telegram.org/js/telegram-web-app.js?59"
+          strategy="beforeInteractive"
+        />
         {/* Loaded via <link> rather than next/font so the build never needs
             network access to Google — it fetches in the browser instead. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
