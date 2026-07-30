@@ -9,13 +9,17 @@
  * reference, and pushes a bounded step toward it — or a heartbeat when the
  * market hasn't moved, because a fresh timestamp is the whole point.
  *
+ * Lives under web/ deliberately: Node resolves modules from the script's own
+ * directory, so a copy at the repo root could not see web/node_modules no
+ * matter what working-directory the workflow set. That was run #1's failure.
+ *
  * SECRET HANDLING: the updater key is read from RATE_UPDATER_KEY in the
  * environment and used only to construct the account. It is never logged,
  * never passed as an argument, and no signed transaction is ever printed.
  */
 import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { arcTestnet, ADDR, rateAbi } from "../web/lib/contracts";
+import { arcTestnet, ADDR, rateAbi } from "../lib/contracts";
 import {
   ALERT_AFTER,
   decide,
@@ -24,7 +28,7 @@ import {
   STALENESS_WINDOW,
   toWad,
   validateFeedRate,
-} from "../web/lib/rateKeeper";
+} from "../lib/rateKeeper";
 
 const FEED = "https://api.frankfurter.app/latest?from=EUR&to=USD";
 
