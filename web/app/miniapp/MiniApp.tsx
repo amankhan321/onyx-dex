@@ -9,6 +9,11 @@ import { unlock as unlockKeystore, type UnlockedWallet } from "@/lib/keystore";
 import { UnlockModal } from "./Unlock";
 import { SwapTab } from "./SwapTab";
 import { SettingsTab } from "./SettingsTab";
+import { OrdersTab } from "./OrdersTab";
+import { PortfolioTab } from "./PortfolioTab";
+import { DepositTab } from "./DepositTab";
+import { usePublicClient } from "wagmi";
+import { ADDR, arcTestnet, bookAbi } from "@/lib/contracts";
 import { isInCloud, tiersAvailable, backupToCloud, initData, waitForTelegram } from "@/lib/telegram";
 
 const FALLBACK_MAX_VALUE = Number(process.env.NEXT_PUBLIC_FALLBACK_MAX_VALUE ?? "100");
@@ -57,6 +62,39 @@ export function MiniApp({
   const [txHash, setTxHash] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [offerBackup, setOfferBackup] = useState(false);
+  const [hasClaimable, setHasClaimable] = useState(false);
+  const publicClient = usePublicClient({ chainId: arcTestnet.id });
+
+  /**
+   * Poll claimable balances so the Orders tab can carry a badge. Unclaimed
+   * fills are real funds sitting in the book; without a nudge people simply
+   * don't know they're there.
+   */
+  useEffect(() => {
+    if (!publicClient) return;
+    let alive = true;
+    const check = async () => {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const [b, q] = (await publicClient.multicall({
+          allowFailure: false,
+          contracts: [
+            { address: ADDR.book as `0x${string}`, abi: bookAbi, functionName: "claimableBase", args: [address] },
+            { address: ADDR.book as `0x${string}`, abi: bookAbi, functionName: "claimableQuote", args: [address] },
+          ],
+        })) as [bigint, bigint];
+        if (alive) setHasClaimable(b > 0n || q > 0n);
+      } catch {
+        /* a failed check must not imply "nothing to claim" — leave it as-is */
+      }
+    };
+    void check();
+    const id = setInterval(check, 30_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [publicClient, address]);
 
   /**
    * Storage mode is STATE, not a render-time call.
@@ -410,14 +448,13 @@ export function MiniApp({
           {tab === "swap" && (
             <SwapTab onResult={setTxHash} fallbackCap={fallbackCap} />
           )}
+          {tab === "orders" && (
+            <OrdersTab onResult={setTxHash} onGoSwap={() => setTab("swap")} />
+          )}
+          {tab === "portfolio" && <PortfolioTab onGoDeposit={() => setTab("deposit")} />}
+          {tab === "deposit" && <DepositTab />}
           {tab === "settings" && (
             <SettingsTab keystore={keystore} onKeystoreChange={setKeystore} />
-          )}
-          {tab !== "swap" && tab !== "settings" && (
-            <div className="glass mt-4 p-5 text-center">
-              <p className="text-sm text-fg">{TABS.find((t) => t.id === tab)?.label}</p>
-              <p className="mt-1 text-xs text-faint">Coming in the next build.</p>
-            </div>
           )}
 
           {txHash && (
@@ -444,7 +481,12 @@ export function MiniApp({
                 tab === id ? "text-indigo" : "text-faint"
               }`}
             >
-              <Icon size={17} />
+              <span className="relative">
+                <Icon size={17} />
+                {id === "orders" && hasClaimable && (
+                  <span className="absolute -right-1 -top-0.5 h-1.5 w-1.5 rounded-full bg-mint" />
+                )}
+              </span>
               {label}
             </button>
           ))}
