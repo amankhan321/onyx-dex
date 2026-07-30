@@ -139,3 +139,12 @@ export const parse = (s: string): bigint => {
 
 export const priceOf = (tick: number) => tick * TICK_SIZE;
 export const tickOf = (price: number) => Math.round(price / TICK_SIZE);
+
+
+/** GuardedRateProvider — the FX feed the StableSwap prices against. */
+export const rateAbi = [
+  { type: "function", name: "rate", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "updatedAt", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "setRate", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
+  { type: "function", name: "STALENESS_WINDOW", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+] as const;

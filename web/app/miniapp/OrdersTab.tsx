@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePublicClient } from "wagmi";
 import { ExternalLink } from "lucide-react";
 import { ADDR, arcTestnet, bookAbi, fmt, twapAbi, twapReadAbi } from "@/lib/contracts";
@@ -11,6 +11,7 @@ import { useMyOrders } from "@/lib/useMyOrders";
 import { filterOwnedActive, relativeTime, type TwapPosition, type TwapTuple } from "@/lib/miniMath";
 import { appendTxLog, useMiniPoll } from "@/lib/useMiniPoll";
 import { EmptyState, ErrorState, Skeleton, Spinner, arcscan } from "./Panel";
+import { formatAge } from "@/lib/rateKeeper";
 
 type OrdersData = {
   claimableBase: bigint;
@@ -30,6 +31,17 @@ export function OrdersTab({
   const { orders, remove: removeOrder } = useMyOrders();
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [staleAge, setStaleAge] = useState<number | null>(null);
+
+  // Cancelling and claiming touch the order book only — neither reads the FX
+  // oracle — so both keep working while swaps are halted. Worth saying, since
+  // "trading is paused" otherwise reads as "nothing works".
+  useEffect(() => {
+    void fetch("/api/status")
+      .then((r) => r.json())
+      .then((s) => setStaleAge(s?.stale ? s.ageSeconds : null))
+      .catch(() => setStaleAge(null));
+  }, []);
 
   const fetcher = useCallback(async (): Promise<OrdersData> => {
     if (!client || !signer.address) throw new Error("Wallet not ready");
@@ -155,6 +167,12 @@ export function OrdersTab({
       {status === "error" && data && (
         <p className="rounded-lg border border-yellow-500/30 bg-yellow-500/[0.08] p-2.5 text-[10px] text-yellow-600">
           Showing last known data — refresh failed.
+        </p>
+      )}
+      {staleAge !== null && (
+        <p className="rounded-lg border border-yellow-500/30 bg-yellow-500/[0.08] p-3 text-[11px] leading-relaxed text-yellow-600">
+          FX rate stale — last updated {formatAge(staleAge)} ago, so swaps are paused.
+          Cancelling and claiming still work normally.
         </p>
       )}
       {actionError && (

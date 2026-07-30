@@ -103,6 +103,14 @@ export default function Page() {
           </Rise>
 
           <Rise>
+            {pool?.rateStale && !poolError && (
+              <p className="mx-auto mt-2 max-w-xl rounded-[12px] border border-yellow-500/30 bg-yellow-500/[0.06] p-3 text-[12px] leading-relaxed text-yellow-500/90">
+                FX rate is stale, so swaps are paused and the rate-derived figures below
+                are unavailable — that&apos;s the safety design, not an outage. Pool
+                reserves are live, the order book is unaffected, and LPs can still
+                withdraw. Trading resumes on the next rate update.
+              </p>
+            )}
             {poolError &&
               (poolError.message.includes("0xec30f4ab") ? (
                 <p className="mx-auto mt-2 max-w-xl rounded-[12px] border border-yellow-500/30 bg-yellow-500/[0.06] p-3 text-[12px] leading-relaxed text-yellow-500/90">

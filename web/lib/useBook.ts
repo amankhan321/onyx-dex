@@ -163,17 +163,24 @@ export function usePool(refetchMs = 5000) {
       // ONE round-trip for all four via Multicall3, instead of four serial
       // eth_calls through the proxy. This is what was taking 10-15s.
       const c = { address: ADDR.pool as `0x${string}`, abi: poolAbi } as const;
-      const [b0, b1, vp, mid] = await client.multicall({
-        allowFailure: false,
+      // getVirtualPrice() and getDy() revert StaleRate (0xec30f4ab) when the
+      // oracle is stale. Reserves don't need the rate, so a failed batch member
+      // must not take the whole stats row down to em-dashes.
+      const res = await client.multicall({
+        allowFailure: true,
         contracts: [
           { ...c, functionName: "balance0" },
           { ...c, functionName: "balance1" },
           { ...c, functionName: "getVirtualPrice" },
           { ...c, functionName: "getDy", args: [true, 1_000_000n] },
         ],
-      }) as [bigint, bigint, bigint, bigint];
+      });
+      const v = (i: number): bigint => (res[i]?.status === "success" ? (res[i].result as bigint) : 0n);
+      const [b0, b1, vp, mid] = [v(0), v(1), v(2), v(3)];
+      const rateStale = res[2]?.status !== "success" || res[3]?.status !== "success";
 
       return {
+        rateStale,
         balance0: b0,
         balance1: b1,
         virtualPrice: vp,

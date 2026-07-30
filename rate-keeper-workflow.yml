@@ -1,0 +1,47 @@
+name: FX rate keeper
+
+# The StableSwap halts when the oracle goes stale — by design, so it can never
+# price off a dead feed. Nothing was refreshing it, which is why trading stopped
+# after 29 hours. This is that missing piece.
+#
+# Every 30 minutes against a 6-hour staleness window leaves a wide margin: a
+# dozen consecutive failures would have to go unnoticed before swaps halt.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: rate-keeper
+  cancel-in-progress: false
+
+jobs:
+  push-rate:
+    name: Refresh the FX rate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      - name: Push rate
+        working-directory: web
+        env:
+          # Env only — never an argument, never echoed. GitHub masks it in logs,
+          # and the script prints the rate, age, delta and tx hash, nothing else.
+          RATE_UPDATER_KEY: ${{ secrets.RATE_UPDATER_KEY }}
+        run: |
+          set -eu   # not -x: tracing would expose the key
+          if [ -z "${RATE_UPDATER_KEY}" ]; then
+            echo "RATE_UPDATER_KEY secret is not set on this repository" >&2
+            exit 1
+          fi
+          npx tsx ../scripts/push-rate.ts

@@ -8,6 +8,7 @@ import { useSigner } from "@/lib/signer";
 import { haptic } from "@/lib/telegram";
 import { loadTxLog, useMiniPoll, type TxRecord } from "@/lib/useMiniPoll";
 import { lpMetrics, totalValueUsdc } from "@/lib/miniMath";
+import { formatAge, isStaleRateError } from "@/lib/rateKeeper";
 import { EmptyState, ErrorState, Skeleton, arcscan } from "./Panel";
 
 type PortfolioData = {
@@ -20,6 +21,8 @@ type PortfolioData = {
   balance1: bigint;
   /** EURC per USDC. null when the oracle is stale — balances still render. */
   rate: number | null;
+  /** Seconds since the oracle last updated, when we could read it. */
+  rateAgeSeconds: number | null;
 };
 
 export function PortfolioTab({ onGoDeposit }: { onGoDeposit: () => void }) {
@@ -33,23 +36,36 @@ export function PortfolioTab({ onGoDeposit }: { onGoDeposit: () => void }) {
     const me = signer.address;
     setTxs(loadTxLog(me));
 
-    const [usdc, eurc, lp, lpSupply, virtualPrice, balance0, balance1] = (await client.multicall({
-      allowFailure: false,
+    const res = await client.multicall({
+      allowFailure: true,
       contracts: [
         { address: ADDR.usdc as `0x${string}`, abi: erc20Abi, functionName: "balanceOf", args: [me] },
         { address: ADDR.eurc as `0x${string}`, abi: erc20Abi, functionName: "balanceOf", args: [me] },
         { address: ADDR.pool as `0x${string}`, abi: poolAbi, functionName: "balanceOf", args: [me] },
         { address: ADDR.pool as `0x${string}`, abi: poolAbi, functionName: "totalSupply" },
-        { address: ADDR.pool as `0x${string}`, abi: poolAbi, functionName: "getVirtualPrice" },
+        // getVirtualPrice() also reverts StaleRate; allowFailure keeps the rest
+      // of the batch alive so LP tokens and reserves still render.
+      { address: ADDR.pool as `0x${string}`, abi: poolAbi, functionName: "getVirtualPrice" },
         { address: ADDR.pool as `0x${string}`, abi: poolAbi, functionName: "balance0" },
         { address: ADDR.pool as `0x${string}`, abi: poolAbi, functionName: "balance1" },
       ],
-    })) as [bigint, bigint, bigint, bigint, bigint, bigint, bigint];
+    });
+    const val = (i: number): bigint =>
+      res[i]?.status === "success" ? (res[i].result as bigint) : 0n;
+    const [usdc, eurc, lp, lpSupply, balance0, balance1] = [
+      val(0), val(1), val(2), val(3), val(5), val(6),
+    ];
+    const virtualPrice = val(4);
 
     // The rate can legitimately be unavailable when the FX oracle is stale. That
     // must not blank the tab — balances are still true, only the conversion is
     // unknown, and the UI says so.
+    // A stale oracle makes getDy revert with StaleRate (0xec30f4ab). That is a
+    // known, correct state — the halt working — not a failure. Balances, LP
+    // holdings and reserves need no rate, so they still render; only the
+    // conversion is withheld.
     let rate: number | null = null;
+    let rateAgeSeconds: number | null = null;
     try {
       const dy = (await client.readContract({
         address: ADDR.pool as `0x${string}`,
@@ -58,11 +74,19 @@ export function PortfolioTab({ onGoDeposit }: { onGoDeposit: () => void }) {
         args: [true, 1_000_000n],
       })) as bigint;
       rate = Number(dy) / 1e6;
-    } catch {
+    } catch (e) {
       rate = null;
+      if (isStaleRateError(e)) {
+        try {
+          const r = await fetch("/api/status").then((x) => x.json());
+          rateAgeSeconds = typeof r?.ageSeconds === "number" ? r.ageSeconds : null;
+        } catch {
+          /* the note degrades to "stale" without an age */
+        }
+      }
     }
 
-    return { usdc, eurc, lp, lpSupply, virtualPrice, balance0, balance1, rate };
+    return { usdc, eurc, lp, lpSupply, virtualPrice, balance0, balance1, rate, rateAgeSeconds };
   }, [client, signer.address]);
 
   const { status, data, error, refetch } = useMiniPoll<PortfolioData>(fetcher, [signer.address]);
@@ -129,8 +153,10 @@ export function PortfolioTab({ onGoDeposit }: { onGoDeposit: () => void }) {
           <span className="ml-1.5 text-xs text-faint">USDC</span>
         </div>
         {data.rate === null && (
-          <p className="mt-1 text-[10px] text-yellow-600">
-            FX rate unavailable (oracle stale) — balances below are still accurate.
+          <p className="mt-1 text-[10px] leading-relaxed text-yellow-600">
+            FX rate stale
+            {data.rateAgeSeconds !== null ? ` — last updated ${formatAge(data.rateAgeSeconds)} ago` : ""}
+            , swaps paused. Your balances below are accurate.
           </p>
         )}
         <div className="mt-3 grid grid-cols-2 gap-3">

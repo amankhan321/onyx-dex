@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createPublicClient, http } from "viem";
-import { ADDR, arcTestnet, bookAbi, poolAbi } from "@/lib/contracts";
+import { ADDR, arcTestnet, bookAbi, poolAbi, rateAbi } from "@/lib/contracts";
+import { ALERT_AFTER, STALENESS_WINDOW, formatAge } from "@/lib/rateKeeper";
 import {
   activeAlerts,
   ensureSchema,
@@ -45,7 +46,32 @@ export async function POST(req: Request) {
   }
 
   await ensureSchema();
-  const result = { fills: 0, alerts: 0, errors: 0 };
+  const result = { fills: 0, alerts: 0, errors: 0, rateAgeSeconds: 0 };
+
+  // ---- oracle freshness: the early warning that was missing ----
+  // Swaps halt at 6h. Warning at 4h leaves two hours to notice and act, rather
+  // than discovering it from a user reporting that trading is broken.
+  try {
+    const [updatedAt, block] = await Promise.all([
+      client.readContract({ address: ADDR.rateProvider as `0x${string}`, abi: rateAbi, functionName: "updatedAt" }) as Promise<bigint>,
+      client.getBlock(),
+    ]);
+    const age = Number(block.timestamp) - Number(updatedAt);
+    result.rateAgeSeconds = age;
+
+    const adminChat = process.env.TELEGRAM_ADMIN_CHAT_ID;
+    if (age > ALERT_AFTER && adminChat) {
+      await sendMessage(
+        Number(adminChat),
+        age > STALENESS_WINDOW
+          ? `🔴 *FX rate stale — swaps are HALTED*\n\nLast update ${formatAge(age)} ago. The rate keeper is not pushing; check the FX rate keeper workflow.`
+          : `⚠️ *FX rate ${formatAge(age)} stale*\n\nSwaps halt at ${formatAge(STALENESS_WINDOW)}. Check the FX rate keeper workflow.`,
+      );
+      result.alerts++;
+    }
+  } catch {
+    result.errors++;
+  }
 
   // ---- fills ----
   for (const o of await openOrders()) {
