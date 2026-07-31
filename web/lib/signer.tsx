@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
-import { createWalletClient, http, type Abi, type Hex } from "viem";
+import { createWalletClient, type Abi, type Hex } from "viem";
+import { browserTransport } from "./rpcTransport";
 import { useAccount, useWriteContract } from "wagmi";
 import { arcTestnet } from "./contracts";
 import type { UnlockedWallet } from "./keystore";
@@ -138,10 +139,14 @@ export function useKeystoreSigner(opts: {
       const reauth = reqs.some((r) => r.requiresReauth);
       const lease = await acquireWallet({ reauth });
       try {
+        // MUST be the app's own transport. A bare http() falls back to the
+        // chain's default URL and hits Arc directly, which 403s any request
+        // with a browser Origin — that was the "HTTP request failed." on every
+        // swap. Reads worked only because they already went through the proxy.
         const wallet = createWalletClient({
           account: lease.wallet.account,
           chain: arcTestnet,
-          transport: http(),
+          transport: browserTransport(),
         });
         const hashes: Hex[] = [];
         for (const r of reqs) {

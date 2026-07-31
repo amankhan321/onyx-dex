@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { usePool } from "@/lib/useBook";
-import { BotDock } from "./BotDock";
 import { direction, formatAgo, formatPrice, useTicker } from "@/lib/ticker";
 
 /**
@@ -13,7 +12,12 @@ import { direction, formatAgo, formatPrice, useTicker } from "@/lib/ticker";
  * the movement and the arrows were fabricated. A feed that is down shows an em
  * dash and says so on hover, rather than disappearing or showing zero.
  */
-export function Ticker() {
+/**
+ * The full tape is for the marketing surfaces. On a phone inside Telegram the
+ * scarcest resource is vertical space, so /miniapp gets `compact`: the Onyx
+ * price and provenance only, no BTC/ETH/GBP/JPY.
+ */
+export function Ticker({ compact = false }: { compact?: boolean } = {}) {
   const { data: pool } = usePool();
   const { ticks, cryptoAt, fxAt } = useTicker();
   const [, force] = useState(0);
@@ -34,8 +38,6 @@ export function Ticker() {
         Market
       </span>
 
-      <BotDock />
-
       {/* Provenance: whose numbers these are and how old. */}
       <span
         className="hidden shrink-0 font-mono text-[10px] text-faint sm:inline"
@@ -55,7 +57,7 @@ export function Ticker() {
           </span>
         </span>
 
-        {ticks.map((t) => {
+        {!compact && ticks.map((t) => {
           const dir = direction(t);
           const unavailable = t.price === null;
           return (

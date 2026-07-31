@@ -1,10 +1,12 @@
-import { createConfig, fallback, http } from "wagmi";
-import { dedupedTransport } from "./rpcTransport";
+import { createConfig, http } from "wagmi";
+import { browserTransport } from "./rpcTransport";
 import { injected } from "wagmi/connectors";
 import { arbitrumSepolia, baseSepolia, sepolia } from "wagmi/chains";
 import { arcTestnet } from "./contracts";
 
-const DIRECT = "https://rpc.testnet.arc.network";
+// From the chain definition rather than a literal, so there is one source of
+// truth for the URL and the guard has one fewer place to police.
+const DIRECT = arcTestnet.rpcUrls.default.http[0];
 const OPTS = { batch: false, retryCount: 2, retryDelay: 400, timeout: 12_000 } as const;
 
 /**
@@ -22,13 +24,14 @@ const OPTS = { batch: false, retryCount: 2, retryDelay: 400, timeout: 12_000 } a
  * transport with 429 backoff — one landing-page load was firing 19 POSTs, six
  * of which were rate-limited. SSR still goes direct.
  */
+/**
+ * SSR talks to Arc directly (no Origin header, so no 403). The browser has
+ * exactly one path: the same-origin proxy. The direct URL is deliberately NOT a
+ * browser fallback — falling back to it just produces a 403 dressed up as a
+ * network error, which is what made write failures so hard to read.
+ */
 const transport =
-  typeof window === "undefined"
-    ? http(DIRECT, OPTS)
-    : fallback([
-        dedupedTransport(`${window.location.origin}/api/rpc`),
-        http(DIRECT, OPTS),
-      ]);
+  typeof window === "undefined" ? http(DIRECT, OPTS) : browserTransport();
 
 export const wagmiConfig = createConfig({
   chains: [arcTestnet, baseSepolia, sepolia, arbitrumSepolia],

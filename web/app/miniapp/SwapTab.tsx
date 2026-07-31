@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { ArrowDown, ChevronDown } from "lucide-react";
 import { useReadContract } from "wagmi";
 import { ADDR, arcTestnet, erc20Abi, fmt, parse } from "@/lib/contracts";
 import { useSwapQuote } from "@/lib/useSwapQuote";
 import { useSigner } from "@/lib/signer";
 import { buildApprove, buildSwap } from "@/lib/onyxActions";
 import { haptic } from "@/lib/telegram";
+import { banner, friendlyError, isBusy, txIdle, type TxState } from "@/lib/txState";
+import { usePublicClient } from "wagmi";
 import { REAUTH_THRESHOLD } from "./MiniApp";
 
 /**
@@ -14,6 +17,21 @@ import { REAUTH_THRESHOLD } from "./MiniApp";
  * site shows, because both read from useSwapQuote() rather than each computing
  * their own.
  */
+function TokenPill({ sym }: { sym: string }) {
+  return (
+    <span className="flex items-center gap-1.5 rounded-full border border-[color:var(--line)] bg-white/[0.04] px-2.5 py-1 text-xs font-semibold text-fg">
+      <span
+        className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${
+          sym === "USDC" ? "bg-[#2775CA]" : "bg-[#3550c8]"
+        }`}
+      >
+        {sym === "USDC" ? "$" : "€"}
+      </span>
+      {sym}
+    </span>
+  );
+}
+
 export function SwapTab({
   onResult,
   fallbackCap,
@@ -24,8 +42,10 @@ export function SwapTab({
   const signer = useSigner();
   const [zeroForOne, setZeroForOne] = useState(true);
   const [amount, setAmount] = useState("1");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [tx, setTx] = useState<TxState>(txIdle);
+  const [showDetail, setShowDetail] = useState(false);
+  const client = usePublicClient({ chainId: arcTestnet.id });
+  const busy = isBusy(tx);
 
   const amountIn = parse(amount);
   const { quote, error: quoteError, improvementBps, bookShare } = useSwapQuote(zeroForOne, amountIn);
@@ -42,19 +62,32 @@ export function SwapTab({
     query: { enabled: Boolean(signer.address) },
   });
 
+  const { data: outBal } = useReadContract({
+    address: (zeroForOne ? ADDR.eurc : ADDR.usdc) as `0x${string}`,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: signer.address ? [signer.address] : undefined,
+    chainId: arcTestnet.id,
+    query: { enabled: Boolean(signer.address) },
+  });
+
   const balance = (inBal as bigint | undefined) ?? 0n;
+  const outBalance = (outBal as bigint | undefined) ?? 0n;
+  // Unit price for the "1 USDC ≈ …" line. Derived from the quote so it always
+  // agrees with the number above it.
+  const unitPrice =
+    quote && amountIn > 0n ? Number(quote.expectedOut) / Number(amountIn) : null;
   const insufficient = amountIn > 0n && amountIn > balance;
   const overCap = fallbackCap != null && Number(amount) > fallbackCap;
 
   async function onSwap() {
     if (!signer.address || !quote) return;
-    setError(null);
-    setBusy(true);
+    // Clear any previous outcome the moment a new attempt begins — a stale
+    // green banner above a fresh failure is worse than no banner.
+    setTx({ status: "signing" });
+    setShowDetail(false);
     haptic.confirm();
     try {
-      // Approve + swap go through as ONE signing session: the keystore signer
-      // unlocks once, sends both, wipes.
-      // Above the threshold, demand the password even inside a live session.
       const big = Number(amount) > REAUTH_THRESHOLD;
       const reqs = [
         buildApprove((zeroForOne ? ADDR.usdc : ADDR.eurc) as `0x${string}`, ADDR.router as `0x${string}`, amountIn),
@@ -68,17 +101,33 @@ export function SwapTab({
           slippageBps: 50,
         }),
       ];
+      setTx({ status: "broadcasting" });
       const hashes = await signer.writeBatch(
         reqs.map((r) => ({ ...r, capValue: Number(amount), requiresReauth: big })),
       );
-      haptic.success();
-      onResult(hashes[hashes.length - 1]);
+      const hash = hashes[hashes.length - 1];
+      setTx({ status: "pending", hash });
+      onResult(hash);
+
+      // Broadcast is not the end: the transaction can still revert.
+      try {
+        const receipt = await client!.waitForTransactionReceipt({ hash, timeout: 90_000 });
+        if (receipt.status === "success") {
+          haptic.success();
+          setTx({ status: "confirmed", hash });
+        } else {
+          haptic.error();
+          setTx({ status: "failed", message: "The swap reverted on-chain.", hash });
+        }
+      } catch {
+        // Still broadcast — we just stopped waiting. Say that rather than
+        // claiming a failure we haven't observed.
+        setTx({ status: "pending", hash });
+      }
     } catch (e) {
       haptic.error();
-      const m = e instanceof Error ? e.message : "Swap failed";
-      setError(m.split("\n")[0].slice(0, 120));
-    } finally {
-      setBusy(false);
+      const { message, detail } = friendlyError(e);
+      setTx({ status: "failed", message, detail });
     }
   }
 
@@ -87,15 +136,7 @@ export function SwapTab({
       <div className="inner p-4">
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-muted">You pay</span>
-          <button
-            onClick={() => {
-              haptic.select();
-              setZeroForOne((v) => !v);
-            }}
-            className="rounded-full border border-[color:var(--line)] px-2.5 py-1 text-[11px] font-semibold text-fg"
-          >
-            {inSym} → {outSym} ⇅
-          </button>
+          <TokenPill sym={inSym} />
         </div>
         <input
           value={amount}
@@ -124,12 +165,38 @@ export function SwapTab({
         </div>
       </div>
 
+      {/* The direction toggle sits between the cards as an icon, the way the
+          desktop panel does — a text pill reading "USDC → EURC ⇅" was doing the
+          job of a button while looking like a label. */}
+      <div className="relative -my-1.5 flex justify-center">
+        <button
+          onClick={() => {
+            haptic.select();
+            setZeroForOne((v) => !v);
+          }}
+          aria-label={`Swap direction to ${outSym} → ${inSym}`}
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--line)] bg-base text-muted transition-colors active:text-fg"
+        >
+          <ArrowDown size={15} />
+        </button>
+      </div>
+
       <div className="inner p-4">
-        <span className="text-[11px] text-muted">You receive</span>
-        <div className="mt-1 font-mono text-3xl tabular text-fg">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-muted">You receive</span>
+          <TokenPill sym={outSym} />
+        </div>
+        <div className="mt-2 font-mono text-3xl tabular text-fg">
           {quote ? fmt(quote.expectedOut) : "0.0000"}
         </div>
-        <span className="font-mono text-[11px] text-faint">{outSym}</span>
+        <div className="mt-2 flex items-center justify-between">
+          <span className="font-mono text-[11px] text-faint">bal {fmt(outBalance, 4)}</span>
+          {unitPrice !== null && (
+            <span className="font-mono text-[10px] text-faint">
+              1 {inSym} ≈ {unitPrice.toFixed(4)} {outSym} · incl. 0.02% taker fee
+            </span>
+          )}
+        </div>
       </div>
 
       {quote && quote.expectedOut > 0n && (
@@ -152,11 +219,51 @@ export function SwapTab({
         </div>
       )}
 
-      {(error || quoteError) && (
-        <p className="rounded-lg border border-rose/30 bg-rose/[0.06] p-3 text-[11px] text-rose">
-          {error ?? quoteError}
-        </p>
-      )}
+      {(() => {
+        const b = banner(tx);
+        if (b.kind === "none") return quoteError ? (
+          <p className="rounded-lg border border-rose/30 bg-rose/[0.06] p-3 text-[11px] text-rose">
+            {quoteError}
+          </p>
+        ) : null;
+        if (b.kind === "progress")
+          return (
+            <p className="rounded-lg border border-[color:var(--line)] bg-white/[0.03] p-3 text-[11px] text-muted">
+              {b.text}
+            </p>
+          );
+        if (b.kind === "success")
+          return (
+            <a
+              href={`https://testnet.arcscan.app/tx/${b.hash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="block rounded-lg border border-mint/30 bg-mint/[0.06] p-3 text-[11px] text-mint"
+            >
+              {b.text} — view on Arcscan ↗
+            </a>
+          );
+        return (
+          <div className="rounded-lg border border-rose/30 bg-rose/[0.06] p-3">
+            <p className="text-[11px] text-rose">{b.text}</p>
+            {b.detail && (
+              <>
+                <button
+                  onClick={() => setShowDetail((v) => !v)}
+                  className="mt-1.5 flex items-center gap-1 text-[10px] text-rose/80"
+                >
+                  Details <ChevronDown size={10} className={showDetail ? "rotate-180" : ""} />
+                </button>
+                {showDetail && (
+                  <p className="mt-1.5 break-words font-mono text-[10px] leading-relaxed text-rose/70">
+                    {b.detail}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {overCap && (
         <p className="rounded-lg border border-yellow-500/30 bg-yellow-500/[0.08] p-3 text-[11px] text-yellow-600">

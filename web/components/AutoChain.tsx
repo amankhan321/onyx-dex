@@ -41,7 +41,9 @@ export function AutoChain() {
                 chainId: `0x${arcTestnet.id.toString(16)}`,
                 chainName: "Arc Testnet",
                 nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-                rpcUrls: ["https://rpc.testnet.arc.network"],
+                // From the chain definition, not a literal: this is handed to the
+                // user's wallet, which has no Origin restriction.
+                rpcUrls: [...arcTestnet.rpcUrls.default.http],
                 blockExplorerUrls: ["https://testnet.arcscan.app"],
               },
             ],

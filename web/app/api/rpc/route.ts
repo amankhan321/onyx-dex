@@ -1,72 +1,155 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 /**
- * Same-origin JSON-RPC proxy.
+ * Same-origin JSON-RPC relay for Arc.
  *
- * Arc's testnet RPC returns 403 to any request carrying a browser Origin header.
- * Server-to-server has no Origin, so the RPC answers normally. The browser talks
- * to /api/rpc on our own domain and we forward from here.
+ * WHY IT EXISTS: Arc's public RPC returns 403 to any request carrying a browser
+ * Origin header, so the browser cannot talk to it directly. Reads went through
+ * here; writes did not, which is why swaps failed with "HTTP request failed."
  *
- * Security model: this forwards READ methods only. Anything that could change
- * state (eth_sendRawTransaction, eth_sendTransaction, personal_*, etc.) is
- * refused — those must go through the user's wallet, never through us. We match
- * by prefix so we don't have to enumerate every read method viem might send
- * (which is what broke the first version: one unlisted method 403'd the whole
- * batch and every number on the page went blank).
+ * WHY RELAYING A SIGNED TRANSACTION IS NOT CUSTODY: eth_sendRawTransaction
+ * carries bytes that are already signed on the user's device. This server never
+ * sees a key, cannot produce a signature, and cannot alter the payload — any
+ * edit invalidates the signature and the network rejects it. Relaying is
+ * postage, not authority.
+ *
+ * The methods that WOULD imply custody are refused and always will be:
+ * eth_sendTransaction, eth_sign, eth_signTypedData*, personal_*, wallet_* all
+ * presuppose that whoever handles them holds a key. We never do.
  */
-const RPC = "https://rpc.testnet.arc.network";
 
-const BLOCKED = [
-  "eth_sendrawtransaction",
-  "eth_sendtransaction",
-  "eth_sign",
-  "personal_",
-  "wallet_",
-];
+const UPSTREAM = "https://rpc.testnet.arc.network";
 
-function isRead(method: unknown): boolean {
-  if (typeof method !== "string") return false;
-  const m = method.toLowerCase();
-  return !BLOCKED.some((b) => m.startsWith(b) || m === b);
+/**
+ * Explicit allowlist. The previous prefix blocklist was the wrong shape: it had
+ * to anticipate every dangerous method, so anything new and dangerous would
+ * have been permitted by default. An allowlist fails closed instead.
+ */
+const READ_METHODS = new Set([
+  "eth_chainId",
+  "eth_blockNumber",
+  "eth_call",
+  "eth_estimateGas",
+  "eth_gasPrice",
+  "eth_maxPriorityFeePerGas",
+  "eth_feeHistory",
+  "eth_getBalance",
+  "eth_getCode",
+  "eth_getStorageAt",
+  "eth_getBlockByNumber",
+  "eth_getBlockByHash",
+  "eth_getTransactionByHash",
+  "eth_getTransactionCount",
+  "eth_getTransactionReceipt",
+  "net_version",
+  "web3_clientVersion",
+]);
+
+/** The one write, kept separate so it can have its own budget. */
+const SEND_METHOD = "eth_sendRawTransaction";
+
+const isAllowed = (m: unknown): m is string =>
+  typeof m === "string" && (READ_METHODS.has(m) || m === SEND_METHOD);
+
+const isSend = (m: unknown) => m === SEND_METHOD;
+
+/**
+ * Separate buckets so a burst of polling reads can never 429 a broadcast. A
+ * rejected read redraws a tile; a rejected broadcast loses a trade.
+ */
+const WINDOW_MS = 60_000;
+const READ_LIMIT = 240;
+const SEND_LIMIT = 30;
+const buckets = new Map<string, { reads: number; sends: number; resetAt: number }>();
+
+function takeToken(ip: string, send: boolean): boolean {
+  const now = Date.now();
+  const b = buckets.get(ip);
+  if (!b || now > b.resetAt) {
+    buckets.set(ip, { reads: send ? 0 : 1, sends: send ? 1 : 0, resetAt: now + WINDOW_MS });
+    return true;
+  }
+  if (send) {
+    if (b.sends >= SEND_LIMIT) return false;
+    b.sends++;
+    return true;
+  }
+  if (b.reads >= READ_LIMIT) return false;
+  b.reads++;
+  return true;
 }
 
-async function forward(payload: unknown) {
-  const upstream = await fetch(RPC, {
+async function forward(body: unknown) {
+  const res = await fetch(UPSTREAM, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
     cache: "no-store",
   });
-  const text = await upstream.text();
+  const text = await res.text();
+  // Never log request or response bodies: a raw transaction and its receipt are
+  // user financial activity, and logs are the easiest place to leak it.
   return new NextResponse(text, {
-    status: upstream.status,
-    headers: { "Content-Type": "application/json" },
+    status: res.status,
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 }
 
-export async function POST(req: NextRequest) {
+const rpcError = (id: unknown, code: number, message: string, status = 400) =>
+  NextResponse.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } }, { status });
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request) {
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "bad json" }, { status: 400 });
+    return rpcError(null, -32700, "Parse error");
   }
 
   const calls = Array.isArray(body) ? body : [body];
-  const bad = calls.find(
-    (c) => !isRead((c as { method?: unknown })?.method),
-  );
-  if (bad) {
-    return NextResponse.json(
-      { error: "only read methods are proxied; send writes through your wallet" },
-      { status: 403 },
+  if (calls.length === 0) return rpcError(null, -32600, "Empty request");
+
+  const offending = calls.find((c) => !isAllowed((c as { method?: unknown })?.method));
+  if (offending) {
+    const m = String((offending as { method?: unknown })?.method ?? "unknown");
+    return rpcError(
+      (offending as { id?: unknown })?.id,
+      -32601,
+      `Method ${m} is not relayed. Reads and eth_sendRawTransaction only — anything that would require this server to hold a key is refused by design.`,
+      403,
     );
   }
 
-  return forward(body);
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    req.headers.get("x-real-ip") ??
+    "anon";
+  const anySend = calls.some((c) => isSend((c as { method?: unknown })?.method));
+
+  if (!takeToken(ip, anySend)) {
+    return rpcError(
+      (calls[0] as { id?: unknown })?.id,
+      -32005,
+      anySend ? "Too many broadcasts, slow down" : "Too many requests",
+      429,
+    );
+  }
+
+  try {
+    return await forward(body);
+  } catch {
+    return rpcError((calls[0] as { id?: unknown })?.id, -32603, "Upstream unavailable", 502);
+  }
 }
 
-// Lets you sanity-check the tunnel in a browser: /api/rpc should return the chain id.
+/** Liveness probe — returns the chain id so a browser can verify the relay works. */
 export async function GET() {
-  return forward({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] });
+  try {
+    return await forward({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] });
+  } catch {
+    return rpcError(1, -32603, "Upstream unavailable", 502);
+  }
 }

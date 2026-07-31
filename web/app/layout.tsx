@@ -5,7 +5,7 @@ import { Providers } from "@/components/Providers";
 import { Ambient } from "@/components/Ambient";
 import { Starfield } from "@/components/Starfield";
 import { Footer } from "@/components/Footer";
-import { Ticker } from "@/components/Ticker";
+import { TickerSlot } from "@/components/TickerSlot";
 
 export const metadata: Metadata = {
   title: "Onyx — an on-chain order book, built on Arc",
@@ -46,7 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Starfield />
         <Providers>
           <div className="relative z-10 flex min-h-screen flex-col">
-            <Ticker />
+            <TickerSlot />
             <div className="flex-1">{children}</div>
             <Footer />
           </div>

@@ -43,6 +43,21 @@ const isRateLimited = (e: unknown) => {
   return s.includes("429") || /rate.?limit|too many requests/i.test(s);
 };
 
+/**
+ * Re-sending a rejected broadcast is safe: the same signed bytes produce the
+ * same transaction hash, so a duplicate is idempotent — the network either
+ * already has it or accepts it once.
+ *
+ * A revert or a nonce error is a real answer, not a transport failure. Retrying
+ * those would either repeat a doomed transaction or race a nonce that has since
+ * been used, so they surface immediately.
+ */
+const isRetryableSendFailure = (e: unknown) => {
+  const s = String((e as Error)?.message ?? e).toLowerCase();
+  if (/nonce|already known|replacement|underpriced|revert|insufficient funds/.test(s)) return false;
+  return isRateLimited(e) || /\b5\d\d\b|upstream|network|timeout|fetch failed/.test(s);
+};
+
 async function post(url: string, args: RpcArgs): Promise<unknown> {
   let lastErr: unknown;
 
@@ -64,6 +79,10 @@ async function post(url: string, args: RpcArgs): Promise<unknown> {
         lastErr = new Error("429 rate limited");
         continue;
       }
+      if (res.status >= 500) {
+        lastErr = new Error(`HTTP ${res.status}`);
+        continue;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const json = (await res.json()) as { result?: unknown; error?: { message?: string } };
@@ -71,8 +90,9 @@ async function post(url: string, args: RpcArgs): Promise<unknown> {
       return json.result;
     } catch (e) {
       lastErr = e;
-      // Only a rate limit is worth retrying; a revert is a real answer.
-      if (!isRateLimited(e)) throw e;
+      const retryable =
+        args.method === "eth_sendRawTransaction" ? isRetryableSendFailure(e) : isRateLimited(e);
+      if (!retryable) throw e;
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error("RPC request failed");
@@ -102,3 +122,15 @@ export function dedupedTransport(url: string) {
 
 /** Test hook: how many identical requests are currently collapsed into one. */
 export const inflightCount = () => inflight.size;
+
+
+/**
+ * The only transport any browser code should use.
+ *
+ * Centralised so no component can accidentally reintroduce a direct connection
+ * to Arc — which 403s from a browser and silently breaks writes.
+ */
+export function browserTransport() {
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  return dedupedTransport(`${origin}/api/rpc`);
+}
