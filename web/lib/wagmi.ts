@@ -1,4 +1,5 @@
 import { createConfig, fallback, http } from "wagmi";
+import { dedupedTransport } from "./rpcTransport";
 import { injected } from "wagmi/connectors";
 import { arbitrumSepolia, baseSepolia, sepolia } from "wagmi/chains";
 import { arcTestnet } from "./contracts";
@@ -16,10 +17,18 @@ const OPTS = { batch: false, retryCount: 2, retryDelay: 400, timeout: 12_000 } a
  * the reliable path — with the direct RPC as fallback. SSR reads go direct.
  * Writes go through the connected wallet and never touch this.
  */
+/**
+ * Browser reads go through the same-origin proxy, now behind a de-duplicating
+ * transport with 429 backoff — one landing-page load was firing 19 POSTs, six
+ * of which were rate-limited. SSR still goes direct.
+ */
 const transport =
   typeof window === "undefined"
     ? http(DIRECT, OPTS)
-    : fallback([http(`${window.location.origin}/api/rpc`, OPTS), http(DIRECT, OPTS)]);
+    : fallback([
+        dedupedTransport(`${window.location.origin}/api/rpc`),
+        http(DIRECT, OPTS),
+      ]);
 
 export const wagmiConfig = createConfig({
   chains: [arcTestnet, baseSepolia, sepolia, arbitrumSepolia],

@@ -30,7 +30,14 @@ import {
   validateFeedRate,
 } from "../lib/rateKeeper";
 
-const FEED = "https://api.frankfurter.app/latest?from=EUR&to=USD";
+/**
+ * frankfurter.app is the legacy host and now returns 503 to some clients
+ * (reproduced from the browser). .dev is current; .app stays as a fallback so a
+ * reversal doesn't silently stop the keeper — which would let the rate age into
+ * a halt again.
+ */
+const FEED_HOSTS = ["https://api.frankfurter.dev", "https://api.frankfurter.app"];
+const FEED_PATH = "/latest?base=EUR&symbols=USD";
 
 function fail(message: string): never {
   console.error(`✗ ${message}`);
@@ -38,12 +45,22 @@ function fail(message: string): never {
 }
 
 async function fetchEurUsd(): Promise<number> {
-  const res = await fetch(FEED, { headers: { accept: "application/json" } });
-  if (!res.ok) throw new Error(`feed HTTP ${res.status}`);
-  const json = (await res.json()) as { rates?: Record<string, unknown> };
-  // validateFeedRate throws on anything non-finite or outside the sane band, so
-  // a broken feed aborts the run rather than being signed into the oracle.
-  return validateFeedRate(json?.rates?.USD);
+  let lastErr: unknown;
+  for (const host of FEED_HOSTS) {
+    try {
+      const res = await fetch(`${host}${FEED_PATH}`, { headers: { accept: "application/json" } });
+      if (!res.ok) throw new Error(`feed HTTP ${res.status}`);
+      const json = (await res.json()) as { rates?: Record<string, unknown> };
+      // validateFeedRate throws on anything non-finite or outside the sane band,
+      // so a broken feed aborts the run rather than being signed into the oracle.
+      const rate = validateFeedRate(json?.rates?.USD);
+      if (host !== FEED_HOSTS[0]) console.log(`feed          : fell back to ${host}`);
+      return rate;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("all FX feed hosts failed");
 }
 
 async function main() {

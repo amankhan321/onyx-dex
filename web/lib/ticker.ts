@@ -3,91 +3,168 @@
 import { useEffect, useState } from "react";
 
 /**
- * Live FX reference rates for the top ticker.
+ * Reference market rates for the tape.
  *
- * IMPORTANT FRAMING: these are external MARKET REFERENCE rates (ECB via
- * frankfurter.app), NOT prices that trade on Onyx. Onyx trades USDC/EURC
- * only. The ticker is clearly labelled "MARKET" so nobody mistakes a scrolling
- * GBP/JPY quote for something executable here. Showing real rates honestly
- * framed reads as serious; faking a trading ticker reads as a scam.
+ * These are REFERENCE prices from public feeds — they are not tradeable on Onyx
+ * and never were. Onyx trades USDC/EURC only.
  *
- * Frankfurter is keyless and CORS-open, so this runs straight from the browser.
- * We nudge each rate a hair between refreshes purely so the digits tick like a
- * live tape — the baseline is always the real published rate, never invented.
+ * NO SYNTHETIC MOVEMENT. A previous version nudged each price by
+ * `anchor * (Math.random() - 0.5) * 0.0004` every 2.5 seconds so the tape
+ * "felt alive", which meant the numbers on screen and the up/down arrows were
+ * invented — a fetch happened once, then five minutes of fiction. State here
+ * changes only when a real fetch returns. If a feed is down the pair shows an
+ * em dash, never a fabricated number and never zero.
  */
-export type Tick = { pair: string; price: number; prev: number };
 
-const PAIRS: [string, string, string][] = [
-  ["", "", "BTC/USD"],
-  ["", "", "ETH/USD"],
-  ["EUR", "USD", "EUR/USD"],
-  ["GBP", "USD", "GBP/USD"],
-  ["USD", "JPY", "USD/JPY"],
-];
+export type Tick = {
+  pair: string;
+  /** null when the feed is unavailable — render an em dash, never 0. */
+  price: number | null;
+  /** The previous REAL price, so the arrow reflects an actual move. */
+  prev: number | null;
+  kind: "crypto" | "fx";
+};
 
-async function fetchRates(): Promise<Record<string, number>> {
+/**
+ * frankfurter.app is the legacy host and now answers browser requests with 503
+ * (reproduced), which silently emptied the FX half of the tape. .dev is the
+ * current host; .app stays as a fallback in case the migration reverses.
+ */
+export const FX_HOSTS = ["https://api.frankfurter.dev", "https://api.frankfurter.app"] as const;
+const CRYPTO_URL =
+  "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd";
+
+const CRYPTO_INTERVAL = 60_000; // 1 min
+const FX_INTERVAL = 600_000; // 10 min — ECB reference rates update daily
+
+/** Formatting per instrument. 4-decimal BTC is invented precision. */
+export function formatPrice(pair: string, price: number | null): string {
+  if (price === null || !Number.isFinite(price)) return "—";
+  if (pair.startsWith("BTC") || pair.startsWith("ETH")) {
+    return price.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  }
+  if (pair.includes("JPY")) return price.toFixed(2);
+  return price.toFixed(4);
+}
+
+/** Neutral when unchanged — forcing a direction would be another small lie. */
+export function direction(t: Tick): "up" | "down" | "flat" {
+  if (t.price === null || t.prev === null || t.price === t.prev) return "flat";
+  return t.price > t.prev ? "up" : "down";
+}
+
+async function fetchFx(): Promise<Record<string, number>> {
+  let lastErr: unknown;
+  for (const host of FX_HOSTS) {
+    try {
+      const res = await fetch(`${host}/latest?base=USD&symbols=EUR,GBP,JPY`, {
+        headers: { accept: "application/json" },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { rates?: Record<string, number> };
+      const r = json?.rates;
+      if (!r) throw new Error("no rates in response");
+      const out: Record<string, number> = {};
+      // Quote the way traders read them, not the way the API returns them.
+      if (Number.isFinite(r.EUR) && r.EUR > 0) out["EUR/USD"] = 1 / r.EUR;
+      if (Number.isFinite(r.GBP) && r.GBP > 0) out["GBP/USD"] = 1 / r.GBP;
+      if (Number.isFinite(r.JPY)) out["USD/JPY"] = r.JPY;
+      if (Object.keys(out).length === 0) throw new Error("no usable rates");
+      return out;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("FX feed unavailable");
+}
+
+async function fetchCrypto(): Promise<Record<string, number>> {
+  const res = await fetch(CRYPTO_URL, { headers: { accept: "application/json" } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const j = (await res.json()) as { bitcoin?: { usd: number }; ethereum?: { usd: number } };
   const out: Record<string, number> = {};
-  // FX (ECB) and crypto (CoinGecko) in parallel; either can fail without
-  // taking the other down, and a total failure just leaves the last values up.
-  const [fx, cg] = await Promise.allSettled([
-    fetch("https://api.frankfurter.app/latest?from=USD").then((r) => r.json()),
-    fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd",
-    ).then((r) => r.json()),
-  ]);
-  if (fx.status === "fulfilled") {
-    const usd = fx.value?.rates ?? {};
-    if (usd.EUR) out["EUR/USD"] = 1 / usd.EUR;
-    if (usd.GBP) out["GBP/USD"] = 1 / usd.GBP;
-    if (usd.JPY) out["USD/JPY"] = usd.JPY;
-  }
-  if (cg.status === "fulfilled") {
-    if (cg.value?.bitcoin?.usd) out["BTC/USD"] = cg.value.bitcoin.usd;
-    if (cg.value?.ethereum?.usd) out["ETH/USD"] = cg.value.ethereum.usd;
-  }
+  if (Number.isFinite(j?.bitcoin?.usd)) out["BTC/USD"] = j!.bitcoin!.usd;
+  if (Number.isFinite(j?.ethereum?.usd)) out["ETH/USD"] = j!.ethereum!.usd;
+  if (Object.keys(out).length === 0) throw new Error("no usable prices");
   return out;
 }
 
-export function useTicker(): Tick[] {
-  const [ticks, setTicks] = useState<Tick[]>(
-    PAIRS.map(([, , pair]) => ({ pair, price: 0, prev: 0 })),
-  );
+const PAIRS: { pair: string; kind: "crypto" | "fx" }[] = [
+  { pair: "BTC/USD", kind: "crypto" },
+  { pair: "ETH/USD", kind: "crypto" },
+  { pair: "EUR/USD", kind: "fx" },
+  { pair: "GBP/USD", kind: "fx" },
+  { pair: "USD/JPY", kind: "fx" },
+];
+
+export type TickerState = {
+  ticks: Tick[];
+  /** When each source last returned successfully. null = never, this session. */
+  cryptoAt: number | null;
+  fxAt: number | null;
+};
+
+/** Merge a fetch result in, carrying the previous REAL price into `prev`. */
+export function applyUpdate(ticks: Tick[], fresh: Record<string, number>): Tick[] {
+  return ticks.map((t) => {
+    const next = fresh[t.pair];
+    if (next === undefined || !Number.isFinite(next)) return t;
+    // Only advance prev when the value actually moved, so the arrow doesn't
+    // reset to flat on every identical poll.
+    return { ...t, prev: next === t.price ? t.prev : t.price, price: next };
+  });
+}
+
+export function useTicker(): TickerState {
+  const [state, setState] = useState<TickerState>({
+    ticks: PAIRS.map((p) => ({ ...p, price: null, prev: null })),
+    cryptoAt: null,
+    fxAt: null,
+  });
 
   useEffect(() => {
-    let base: Record<string, number> = {};
     let alive = true;
 
-    (async () => {
-      base = await fetchRates();
+    const pull = async (which: "crypto" | "fx" | "both") => {
+      // allSettled so one dead feed never takes the other down with it.
+      const [crypto, fx] = await Promise.allSettled([
+        which === "fx" ? Promise.reject(new Error("skip")) : fetchCrypto(),
+        which === "crypto" ? Promise.reject(new Error("skip")) : fetchFx(),
+      ]);
       if (!alive) return;
-      setTicks(PAIRS.map(([, , pair]) => ({ pair, price: base[pair] ?? 0, prev: base[pair] ?? 0 })));
-    })();
 
-    // Re-pull the real published rates every 5 min.
-    const refetch = setInterval(async () => {
-      const next = await fetchRates();
-      if (Object.keys(next).length) base = next;
-    }, 5 * 60_000);
+      setState((s) => {
+        let ticks = s.ticks;
+        let { cryptoAt, fxAt } = s;
+        if (crypto.status === "fulfilled") {
+          ticks = applyUpdate(ticks, crypto.value);
+          cryptoAt = Date.now();
+        }
+        if (fx.status === "fulfilled") {
+          ticks = applyUpdate(ticks, fx.value);
+          fxAt = Date.now();
+        }
+        return { ticks, cryptoAt, fxAt };
+      });
+    };
 
-    // Tick the tape every 2.5s: micro-jitter around the true rate so it feels
-    // alive without ever drifting off the real number.
-    const tape = setInterval(() => {
-      setTicks((cur) =>
-        cur.map((t) => {
-          const anchor = base[t.pair] ?? t.price;
-          if (!anchor) return t;
-          const jitter = anchor * (Math.random() - 0.5) * 0.0004;
-          return { pair: t.pair, prev: t.price || anchor, price: anchor + jitter };
-        }),
-      );
-    }, 2500);
-
+    void pull("both");
+    const c = setInterval(() => void pull("crypto"), CRYPTO_INTERVAL);
+    const f = setInterval(() => void pull("fx"), FX_INTERVAL);
     return () => {
       alive = false;
-      clearInterval(refetch);
-      clearInterval(tape);
+      clearInterval(c);
+      clearInterval(f);
     };
   }, []);
 
-  return ticks;
+  return state;
+}
+
+export function formatAgo(at: number | null, now = Date.now()): string {
+  if (at === null) return "never";
+  const s = Math.round((now - at) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  return `${Math.round(s / 3600)}h ago`;
 }
