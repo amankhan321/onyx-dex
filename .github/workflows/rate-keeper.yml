@@ -20,9 +20,9 @@ jobs:
     name: Refresh the FX rate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -38,10 +38,11 @@ jobs:
           # Env only — never an argument, never echoed. GitHub masks it in logs,
           # and the script prints the rate, age, delta and tx hash, nothing else.
           RATE_UPDATER_KEY: ${{ secrets.RATE_UPDATER_KEY }}
+          ARC_RPC_URL: https://rpc.testnet.arc.network
         run: |
           set -eu   # not -x: tracing would expose the key
           if [ -z "${RATE_UPDATER_KEY}" ]; then
             echo "RATE_UPDATER_KEY secret is not set on this repository" >&2
             exit 1
           fi
-          npx tsx ../scripts/push-rate.ts
+          npm run keeper
