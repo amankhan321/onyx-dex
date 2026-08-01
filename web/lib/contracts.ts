@@ -148,3 +148,47 @@ export const rateAbi = [
   { type: "function", name: "setRate", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
   { type: "function", name: "STALENESS_WINDOW", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;
+
+
+/**
+ * Every custom error the Onyx contracts can revert with.
+ *
+ * viem decodes a revert by matching its 4-byte selector against error entries
+ * in the ABI it was given. None of our ABIs carried any, so EVERY revert
+ * arrived as an undecodable blob and fell through to "Swap failed." — the user
+ * was told a transaction failed but never why, even for reasons we handle well
+ * (a crossed spread, a stale rate, slippage).
+ *
+ * Spread into the write and simulation ABIs so both paths decode identically.
+ */
+export const onyxErrorsAbi = [
+  { type: "error", name: "BadParams", inputs: [] },
+  { type: "error", name: "BadTick", inputs: [] },
+  { type: "error", name: "DeviationTooLarge", inputs: [] },
+  { type: "error", name: "Expired", inputs: [] },
+  { type: "error", name: "InsufficientLiquidity", inputs: [] },
+  { type: "error", name: "InvalidToken", inputs: [] },
+  { type: "error", name: "NotActive", inputs: [] },
+  { type: "error", name: "NotDue", inputs: [] },
+  { type: "error", name: "NotMaker", inputs: [] },
+  { type: "error", name: "NotOwner", inputs: [] },
+  { type: "error", name: "NotUpdater", inputs: [] },
+  { type: "error", name: "NothingFilled", inputs: [] },
+  { type: "error", name: "NothingToClaim", inputs: [] },
+  { type: "error", name: "Slippage", inputs: [] },
+  { type: "error", name: "StaleRate", inputs: [] },
+  { type: "error", name: "TooManyDecimals", inputs: [] },
+  { type: "error", name: "TooSoon", inputs: [] },
+  { type: "error", name: "WouldCross", inputs: [] },
+  { type: "error", name: "ZeroAmount", inputs: [] },
+  { type: "error", name: "ZeroRate", inputs: [] },
+] as const;
+
+/** Router ABI including error definitions — use this for writes and simulation. */
+export const routerWriteAbi = [...routerAbi, ...onyxErrorsAbi] as const;
+/** OrderBook ABI including error definitions. */
+export const bookWriteAbi = [...bookAbi, ...onyxErrorsAbi] as const;
+/** StableSwap ABI including error definitions. */
+export const poolWriteAbi = [...poolAbi, ...onyxErrorsAbi] as const;
+/** TwapExecutor ABI including error definitions. */
+export const twapWriteAbi = [...twapAbi, ...onyxErrorsAbi] as const;

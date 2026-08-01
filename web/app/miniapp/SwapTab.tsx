@@ -8,7 +8,12 @@ import { useSwapQuote } from "@/lib/useSwapQuote";
 import { useSigner } from "@/lib/signer";
 import { buildApprove, buildSwap } from "@/lib/onyxActions";
 import { haptic } from "@/lib/telegram";
-import { banner, friendlyError, isBusy, txIdle, type TxState } from "@/lib/txState";
+import {
+  banner, friendlyError, isBusy, txIdle, type TxState,
+  initialSwapSteps, setStep, stepForError, type SwapStep,
+} from "@/lib/txState";
+import { SwapProgressModal } from "./SwapProgressModal";
+import { quoterAbi, routerWriteAbi } from "@/lib/contracts";
 import { usePublicClient } from "wagmi";
 import { REAUTH_THRESHOLD } from "./MiniApp";
 
@@ -32,18 +37,13 @@ function TokenPill({ sym }: { sym: string }) {
   );
 }
 
-export function SwapTab({
-  onResult,
-  fallbackCap,
-}: {
-  onResult: (hash: string) => void;
-  fallbackCap: number | null;
-}) {
+export function SwapTab({ fallbackCap }: { fallbackCap: number | null }) {
   const signer = useSigner();
   const [zeroForOne, setZeroForOne] = useState(true);
   const [amount, setAmount] = useState("1");
   const [tx, setTx] = useState<TxState>(txIdle);
   const [showDetail, setShowDetail] = useState(false);
+  const [steps, setSteps] = useState<SwapStep[] | null>(null);
   const client = usePublicClient({ chainId: arcTestnet.id });
   const busy = isBusy(tx);
 
@@ -81,52 +81,136 @@ export function SwapTab({
   const overCap = fallbackCap != null && Number(amount) > fallbackCap;
 
   async function onSwap() {
-    if (!signer.address || !quote) return;
-    // Clear any previous outcome the moment a new attempt begins — a stale
-    // green banner above a fresh failure is worse than no banner.
+    if (!signer.address || !quote || !client) return;
+    const owner = signer.address;
+    const tokenIn = (zeroForOne ? ADDR.usdc : ADDR.eurc) as `0x${string}`;
+
     setTx({ status: "signing" });
     setShowDetail(false);
     haptic.confirm();
+
+    let live: SwapStep[] = [];
+    const push = (next: SwapStep[]) => {
+      live = next;
+      setSteps(next);
+    };
+
     try {
-      const big = Number(amount) > REAUTH_THRESHOLD;
-      const reqs = [
-        buildApprove((zeroForOne ? ADDR.usdc : ADDR.eurc) as `0x${string}`, ADDR.router as `0x${string}`, amountIn),
-        buildSwap({
-          zeroForOne,
-          amountIn,
-          bookIn: quote.bookIn,
-          expectedOut: quote.expectedOut,
-          limitTick: quote.limitTick,
-          recipient: signer.address,
+      // 2a — only approve when the allowance is actually short. An unconditional
+      // approve is a wasted signature, and on tokens that forbid a non-zero
+      // rewrite it reverts before the swap is ever attempted.
+      const allowance = (await client.readContract({
+        address: tokenIn,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [owner, ADDR.router as `0x${string}`],
+      })) as bigint;
+      const needsApproval = allowance < amountIn;
+      push(initialSwapSteps(needsApproval));
+
+      // 2c — re-quote immediately before submitting. The on-screen quote can be
+      // seconds old, and limitTick/bookIn are only valid against the book they
+      // were computed from; a stale one reverts as Slippage or WouldCross.
+      push(setStep(live, "swap", { state: "active", detail: "Refreshing quote…" }));
+      const fresh = (await client.readContract({
+        address: ADDR.quoter as `0x${string}`,
+        abi: quoterAbi,
+        functionName: "quote",
+        args: [zeroForOne, amountIn, 16],
+      })) as { bookIn: bigint; expectedOut: bigint; limitTick: number };
+
+      if (fresh.expectedOut === 0n) {
+        throw new Error("No route available right now — the curve may be paused on a stale rate.");
+      }
+      // Guard the user against a quote that moved under them while they tapped.
+      const drop = Number(((quote.expectedOut - fresh.expectedOut) * 10_000n) / quote.expectedOut);
+      if (drop > 100) {
+        throw new Error(
+          `Price moved ${(drop / 100).toFixed(2)}% while you were confirming. Check the new quote and try again.`,
+        );
+      }
+
+      const swapReq = {
+        ...buildSwap({
+          zeroForOne, amountIn,
+          bookIn: fresh.bookIn,
+          expectedOut: fresh.expectedOut,
+          limitTick: Number(fresh.limitTick),
+          recipient: owner,
           slippageBps: 50,
         }),
-      ];
-      setTx({ status: "broadcasting" });
-      const hashes = await signer.writeBatch(
-        reqs.map((r) => ({ ...r, capValue: Number(amount), requiresReauth: big })),
-      );
-      const hash = hashes[hashes.length - 1];
-      setTx({ status: "pending", hash });
-      onResult(hash);
+        capValue: Number(amount),
+        requiresReauth: Number(amount) > REAUTH_THRESHOLD,
+        label: "Submit swap",
+      };
 
-      // Broadcast is not the end: the transaction can still revert.
+      // 2c — simulate before spending gas, so a predictable revert is reported
+      // as a reason rather than a failed transaction the user pays for.
+      push(setStep(live, "swap", { state: "active", detail: "Checking the trade…" }));
       try {
-        const receipt = await client!.waitForTransactionReceipt({ hash, timeout: 90_000 });
-        if (receipt.status === "success") {
-          haptic.success();
-          setTx({ status: "confirmed", hash });
-        } else {
-          haptic.error();
-          setTx({ status: "failed", message: "The swap reverted on-chain.", hash });
+        await client.simulateContract({
+          address: ADDR.router as `0x${string}`,
+          abi: routerWriteAbi,
+          functionName: "swapExactIn",
+          args: swapReq.args as never,
+          account: owner,
+        });
+      } catch (simErr) {
+        // Only trust a decoded revert. An RPC hiccup during simulation must not
+        // block a swap that would have succeeded.
+        const { message } = friendlyError(simErr);
+        if (message !== "Swap failed." && !/couldn't reach/i.test(message)) {
+          throw new Error(message);
         }
-      } catch {
-        // Still broadcast — we just stopped waiting. Say that rather than
-        // claiming a failure we haven't observed.
-        setTx({ status: "pending", hash });
+      }
+
+      const reqs = needsApproval
+        ? [
+            {
+              ...buildApprove(tokenIn, ADDR.router as `0x${string}`, amountIn),
+              // 2b — the approve must be MINED before the swap is broadcast.
+              awaitReceipt: true,
+              label: "Approve token",
+            },
+            swapReq,
+          ]
+        : [swapReq];
+
+      push(setStep(live, "swap", { state: "pending", detail: undefined }));
+      setTx({ status: "broadcasting" });
+
+      const hashes = await signer.writeBatch(reqs, (e) => {
+        if (e.phase === "unlocking") push(setStep(live, "unlock", { state: "active" }));
+        if (e.phase === "sending") {
+          push(setStep(setStep(live, "unlock", { state: "done" }),
+            e.label === "Approve token" ? "approve" : "swap", { state: "active" }));
+        }
+        if (e.phase === "sent") {
+          const id = e.label === "Approve token" ? "approve" : "swap";
+          push(setStep(live, id, { state: id === "approve" ? "active" : "done", hash: e.hash }));
+        }
+        if (e.phase === "mined") push(setStep(live, "approve", { state: "done", hash: e.hash }));
+      });
+
+      const hash = hashes[hashes.length - 1];
+      push(setStep(live, "confirm", { state: "active", detail: "Waiting for the block…" }));
+      setTx({ status: "pending", hash });
+
+      const receipt = await client.waitForTransactionReceipt({ hash, timeout: 90_000 });
+      if (receipt.status === "success") {
+        haptic.success();
+        push(setStep(live, "confirm", { state: "done", detail: undefined, hash }));
+        setTx({ status: "confirmed", hash });
+      } else {
+        haptic.error();
+        push(setStep(live, "confirm", { state: "failed", detail: "Reverted on-chain", hash }));
+        setTx({ status: "failed", message: "The swap reverted on-chain.", hash });
       }
     } catch (e) {
       haptic.error();
       const { message, detail } = friendlyError(e);
+      const where = stepForError(e);
+      if (live.length) push(setStep(live, where, { state: "failed", detail: message }));
       setTx({ status: "failed", message, detail });
     }
   }
@@ -281,6 +365,21 @@ export function SwapTab({
           Capped at {fallbackCap} USDC while your key is in less-secure storage.
         </p>
       )}
+
+      <SwapProgressModal
+        open={steps !== null}
+        steps={steps ?? []}
+        payAmount={amount}
+        paySymbol={inSym}
+        receiveAmount={quote ? fmt(quote.expectedOut) : "—"}
+        receiveSymbol={outSym}
+        dismissable={!busy}
+        onClose={() => setSteps(null)}
+        onRetry={() => {
+          setSteps(null);
+          void onSwap();
+        }}
+      />
 
       <button
         onClick={onSwap}

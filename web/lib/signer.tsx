@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { createWalletClient, type Abi, type Hex } from "viem";
 import { browserTransport } from "./rpcTransport";
-import { useAccount, useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { arcTestnet } from "./contracts";
 import type { UnlockedWallet } from "./keystore";
 
@@ -38,7 +38,25 @@ export type WriteRequest = {
    * unlocked phone should not be enough.
    */
   requiresReauth?: boolean;
+  /**
+   * Wait for this transaction's receipt before sending the next in the batch.
+   *
+   * An approve must be MINED before the swap that spends the allowance is even
+   * broadcast. Firing both back to back leaves ordering to the mempool, and a
+   * swap that lands first reverts on an allowance that does not exist yet.
+   */
+  awaitReceipt?: boolean;
+  /** Reported as each step completes, so the UI can show real progress. */
+  label?: string;
 };
+
+/** Progress callback for a batch, so a modal can follow it step by step. */
+export type BatchProgress = (e:
+  | { phase: "unlocking" }
+  | { phase: "sending"; index: number; label?: string }
+  | { phase: "sent"; index: number; hash: Hex; label?: string }
+  | { phase: "mined"; index: number; hash: Hex; label?: string }
+) => void;
 
 export type OnyxSigner = {
   address?: `0x${string}`;
@@ -55,7 +73,7 @@ export type OnyxSigner = {
    * once, sends both, then wipes — instead of prompting for the password twice
    * or, worse, caching it between prompts.
    */
-  writeBatch: (reqs: WriteRequest[]) => Promise<Hex[]>;
+  writeBatch: (reqs: WriteRequest[], onProgress?: BatchProgress) => Promise<Hex[]>;
 };
 
 const SignerContext = createContext<OnyxSigner | null>(null);
@@ -91,10 +109,15 @@ export function useWagmiSigner(): OnyxSigner {
   );
 
   const writeBatch = useCallback(
-    async (reqs: WriteRequest[]) => {
+    async (reqs: WriteRequest[], onProgress?: BatchProgress) => {
       // The wallet prompts per transaction regardless, so sequential is honest.
       const out: Hex[] = [];
-      for (const r of reqs) out.push(await write(r));
+      for (let i = 0; i < reqs.length; i++) {
+        onProgress?.({ phase: "sending", index: i, label: reqs[i].label });
+        const hash = await write(reqs[i]);
+        out.push(hash);
+        onProgress?.({ phase: "sent", index: i, hash, label: reqs[i].label });
+      }
       return out;
     },
     [write],
@@ -132,11 +155,13 @@ export function useKeystoreSigner(opts: {
   acquireWallet: (opts: { reauth: boolean }) => Promise<WalletLease>;
 }): OnyxSigner {
   const { address, acquireWallet } = opts;
+  const publicClient = usePublicClient({ chainId: arcTestnet.id });
 
   const writeBatch = useCallback(
-    async (reqs: WriteRequest[]) => {
+    async (reqs: WriteRequest[], onProgress?: BatchProgress) => {
       // Any request in the batch demanding re-auth escalates the whole batch.
       const reauth = reqs.some((r) => r.requiresReauth);
+      onProgress?.({ phase: "unlocking" });
       const lease = await acquireWallet({ reauth });
       try {
         // MUST be the app's own transport. A bare http() falls back to the
@@ -149,16 +174,27 @@ export function useKeystoreSigner(opts: {
           transport: browserTransport(),
         });
         const hashes: Hex[] = [];
-        for (const r of reqs) {
-          hashes.push(
-            await wallet.writeContract({
-              address: r.address,
-              abi: r.abi,
-              functionName: r.functionName,
-              args: r.args as never,
-              chain: arcTestnet,
-            }),
-          );
+        for (let i = 0; i < reqs.length; i++) {
+          const r = reqs[i];
+          onProgress?.({ phase: "sending", index: i, label: r.label });
+          const hash = await wallet.writeContract({
+            address: r.address,
+            abi: r.abi,
+            functionName: r.functionName,
+            args: r.args as never,
+            chain: arcTestnet,
+          });
+          hashes.push(hash);
+          onProgress?.({ phase: "sent", index: i, hash, label: r.label });
+
+          // A dependent follow-up must not be broadcast until this one is mined.
+          if (r.awaitReceipt && publicClient) {
+            const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 });
+            if (receipt.status !== "success") {
+              throw new Error(`${r.label ?? "Transaction"} reverted on-chain`);
+            }
+            onProgress?.({ phase: "mined", index: i, hash, label: r.label });
+          }
         }
         return hashes;
       } finally {
@@ -168,7 +204,10 @@ export function useKeystoreSigner(opts: {
     [acquireWallet],
   );
 
-  const write = useCallback(async (req: WriteRequest) => (await writeBatch([req]))[0], [writeBatch]);
+  const write = useCallback(
+    async (req: WriteRequest) => (await writeBatch([req]))[0],
+    [writeBatch],
+  );
 
   return useMemo(
     () => ({

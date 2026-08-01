@@ -19,18 +19,15 @@ type OrdersData = {
   twaps: TwapPosition[];
 };
 
-export function OrdersTab({
-  onResult,
-  onGoSwap,
-}: {
-  onResult: (hash: string) => void;
-  onGoSwap: () => void;
-}) {
+export function OrdersTab({ onGoSwap }: { onGoSwap: () => void }) {
   const signer = useSigner();
   const client = usePublicClient({ chainId: arcTestnet.id });
   const { orders, remove: removeOrder } = useMyOrders();
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Owned here, cleared at the start of every action — the shell used to render
+  // this and had no way to reset it, so a stale success sat under new failures.
+  const [lastHash, setLastHash] = useState<string | null>(null);
   const [staleAge, setStaleAge] = useState<number | null>(null);
 
   // Cancelling and claiming touch the order book only — neither reads the FX
@@ -88,6 +85,7 @@ export function OrdersTab({
   async function cancelOrder(id: string, size: string) {
     setBusy(id);
     setActionError(null);
+    setLastHash(null);
     haptic.confirm();
     // Optimistic: pull the row now, restore it if the chain rejects.
     const snapshot = orders.find((o) => o.id === id);
@@ -97,7 +95,7 @@ export function OrdersTab({
       const hash = await signer.write({ ...req, capValue: Number(size) });
       appendTxLog(signer.address!, { hash, kind: "Cancel order", at: Date.now() });
       haptic.success();
-      onResult(hash);
+      setLastHash(hash);
       void refetch();
     } catch (e) {
       haptic.error();
@@ -112,6 +110,7 @@ export function OrdersTab({
     if (!data) return;
     setBusy("claim");
     setActionError(null);
+    setLastHash(null);
     haptic.confirm();
     try {
       const total = Number(data.claimableBase + data.claimableQuote) / 1e6;
@@ -125,7 +124,7 @@ export function OrdersTab({
       });
       appendTxLog(signer.address!, { hash, kind: "Claim fills", at: Date.now() });
       haptic.success();
-      onResult(hash);
+      setLastHash(hash);
       void refetch();
     } catch (e) {
       haptic.error();
@@ -138,6 +137,7 @@ export function OrdersTab({
   async function cancelTwap(id: bigint, remaining: bigint) {
     setBusy(`twap-${id}`);
     setActionError(null);
+    setLastHash(null);
     haptic.confirm();
     try {
       const hash = await signer.write({
@@ -146,7 +146,7 @@ export function OrdersTab({
       });
       appendTxLog(signer.address!, { hash, kind: "Cancel TWAP", at: Date.now() });
       haptic.success();
-      onResult(hash);
+      setLastHash(hash);
       void refetch();
     } catch (e) {
       haptic.error();
@@ -175,11 +175,20 @@ export function OrdersTab({
           Cancelling and claiming still work normally.
         </p>
       )}
-      {actionError && (
+      {actionError ? (
         <p className="rounded-lg border border-rose/30 bg-rose/[0.06] p-3 text-[11px] text-rose">
           {actionError}
         </p>
-      )}
+      ) : lastHash ? (
+        <a
+          href={arcscan(lastHash)}
+          target="_blank"
+          rel="noreferrer"
+          className="block rounded-lg border border-mint/30 bg-mint/[0.06] p-3 text-[11px] text-mint"
+        >
+          Sent — view on Arcscan ↗
+        </a>
+      ) : null}
 
       {hasClaimable && data && (
         <section className="rounded-xl border border-mint/30 bg-mint/[0.07] p-4">

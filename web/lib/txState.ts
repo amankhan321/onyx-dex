@@ -93,3 +93,51 @@ export function friendlyError(err: unknown): { message: string; detail?: string 
   }
   return { message: "Swap failed.", detail };
 }
+
+
+/**
+ * A named stage of a swap, so a failure says WHERE it happened.
+ *
+ * "Swap failed." is unactionable — it cannot distinguish a rejected password
+ * from a missing allowance from an on-chain revert, and those need completely
+ * different responses from the user.
+ */
+export type SwapStepState = "pending" | "active" | "done" | "failed" | "skipped";
+
+export type SwapStep = {
+  id: "unlock" | "approve" | "swap" | "confirm";
+  label: string;
+  state: SwapStepState;
+  detail?: string;
+  hash?: string;
+};
+
+export const initialSwapSteps = (needsApproval: boolean): SwapStep[] => [
+  { id: "unlock", label: "Unlock wallet", state: "pending" },
+  {
+    id: "approve",
+    label: "Approve token",
+    // Marked skipped up front when the allowance already covers it, rather than
+    // shown as a step that silently never runs.
+    state: needsApproval ? "pending" : "skipped",
+  },
+  { id: "swap", label: "Submit swap", state: "pending" },
+  { id: "confirm", label: "Confirm on Arc", state: "pending" },
+];
+
+export function setStep(
+  steps: SwapStep[],
+  id: SwapStep["id"],
+  patch: Partial<Omit<SwapStep, "id" | "label">>,
+): SwapStep[] {
+  return steps.map((s) => (s.id === id ? { ...s, ...patch } : s));
+}
+
+/** Which step to blame when a throw arrives with no step context. */
+export function stepForError(err: unknown): SwapStep["id"] {
+  const s = String((err as Error)?.message ?? err).toLowerCase();
+  if (/wrong password|corrupted keystore|cancelled|user rejected/.test(s)) return "unlock";
+  if (/allowance|approve/.test(s)) return "approve";
+  if (/revert|slippage|wouldcross|stalerate|expired/.test(s)) return "confirm";
+  return "swap";
+}

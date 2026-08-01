@@ -59,7 +59,6 @@ export function MiniApp({
   const [keystore, setKeystore] = useState(initialKeystore);
   const [tab, setTab] = useState<Tab>("swap");
   const [height, setHeight] = useState<number>(0);
-  const [txHash, setTxHash] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [offerBackup, setOfferBackup] = useState(false);
   const [hasClaimable, setHasClaimable] = useState(false);
@@ -446,10 +445,10 @@ export function MiniApp({
 
         <main className="flex-1 overflow-y-auto px-4 pb-24">
           {tab === "swap" && (
-            <SwapTab onResult={setTxHash} fallbackCap={fallbackCap} />
+            <SwapTab fallbackCap={fallbackCap} />
           )}
           {tab === "orders" && (
-            <OrdersTab onResult={setTxHash} onGoSwap={() => setTab("swap")} />
+            <OrdersTab onGoSwap={() => setTab("swap")} />
           )}
           {tab === "portfolio" && <PortfolioTab onGoDeposit={() => setTab("deposit")} />}
           {tab === "deposit" && <DepositTab />}
@@ -457,16 +456,6 @@ export function MiniApp({
             <SettingsTab keystore={keystore} onKeystoreChange={setKeystore} />
           )}
 
-          {txHash && (
-            <a
-              href={`https://testnet.arcscan.app/tx/${txHash}`}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-3 block break-all rounded-lg border border-mint/30 bg-mint/[0.06] p-3 font-mono text-[11px] text-mint"
-            >
-              Sent — view on Arcscan ↗
-            </a>
-          )}
         </main>
 
         <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[color:var(--line)] bg-base/95 backdrop-blur-xl">
