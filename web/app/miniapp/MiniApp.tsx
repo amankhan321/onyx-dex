@@ -9,7 +9,7 @@ import { unlock as unlockKeystore, type UnlockedWallet } from "@/lib/keystore";
 import { UnlockModal } from "./Unlock";
 import { SwapTab } from "./SwapTab";
 import { SettingsTab } from "./SettingsTab";
-import { OrdersTab } from "./OrdersTab";
+import { ActivityTab } from "./ActivityTab";
 import { PortfolioTab } from "./PortfolioTab";
 import { DepositTab } from "./DepositTab";
 import { usePublicClient } from "wagmi";
@@ -36,7 +36,7 @@ type Tab = "swap" | "orders" | "portfolio" | "deposit" | "settings";
 
 const TABS: { id: Tab; label: string; Icon: typeof ArrowDownUp }[] = [
   { id: "swap", label: "Swap", Icon: ArrowDownUp },
-  { id: "orders", label: "Orders", Icon: ListOrdered },
+  { id: "orders", label: "Activity", Icon: ListOrdered },
   { id: "portfolio", label: "Portfolio", Icon: Wallet },
   { id: "deposit", label: "Deposit", Icon: Download },
   { id: "settings", label: "Settings", Icon: Settings2 },
@@ -447,9 +447,7 @@ export function MiniApp({
           {tab === "swap" && (
             <SwapTab fallbackCap={fallbackCap} />
           )}
-          {tab === "orders" && (
-            <OrdersTab onGoSwap={() => setTab("swap")} />
-          )}
+          {tab === "orders" && <ActivityTab />}
           {tab === "portfolio" && <PortfolioTab onGoDeposit={() => setTab("deposit")} />}
           {tab === "deposit" && <DepositTab />}
           {tab === "settings" && (

@@ -9,9 +9,12 @@ import { buildCancelOrder, buildCancelTwap, buildClaim } from "@/lib/onyxActions
 import { haptic } from "@/lib/telegram";
 import { useMyOrders } from "@/lib/useMyOrders";
 import { filterOwnedActive, relativeTime, type TwapPosition, type TwapTuple } from "@/lib/miniMath";
-import { appendTxLog, useMiniPoll } from "@/lib/useMiniPoll";
+import { useMiniPoll } from "@/lib/useMiniPoll";
 import { EmptyState, ErrorState, Skeleton, Spinner, arcscan } from "./Panel";
 import { formatAge } from "@/lib/rateKeeper";
+import { useActivity, notifyActivity } from "@/lib/useActivity";
+import { kindLabel, recordActivity, relativeAgo, type ActivityEntry } from "@/lib/activityLog";
+import { friendlyError } from "@/lib/txState";
 
 type OrdersData = {
   claimableBase: bigint;
@@ -19,10 +22,12 @@ type OrdersData = {
   twaps: TwapPosition[];
 };
 
-export function OrdersTab({ onGoSwap }: { onGoSwap: () => void }) {
+/** Named for what the screen shows: resting orders AND the history below them. */
+export function ActivityTab() {
   const signer = useSigner();
   const client = usePublicClient({ chainId: arcTestnet.id });
   const { orders, remove: removeOrder } = useMyOrders();
+  const { entries, refresh: refreshActivity } = useActivity(signer.address);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   // Owned here, cleared at the start of every action — the shell used to render
@@ -93,14 +98,19 @@ export function OrdersTab({ onGoSwap }: { onGoSwap: () => void }) {
     try {
       const req = buildCancelOrder(BigInt(id));
       const hash = await signer.write({ ...req, capValue: Number(size) });
-      appendTxLog(signer.address!, { hash, kind: "Cancel order", at: Date.now() });
+      // Written at broadcast, so a pending or failed attempt is still visible.
+      recordActivity(signer.address!, {
+        hash, kind: "cancel-order", summary: `${size} USDC · order #${id}`,
+      });
+      notifyActivity();
+      void refreshActivity();
       haptic.success();
       setLastHash(hash);
       void refetch();
     } catch (e) {
       haptic.error();
       if (snapshot) window.dispatchEvent(new CustomEvent("onyx:restore-order", { detail: snapshot }));
-      setActionError(e instanceof Error ? e.message.split("\n")[0].slice(0, 120) : "Cancel failed");
+      setActionError(friendlyError(e).message);
     } finally {
       setBusy(null);
     }
@@ -122,13 +132,18 @@ export function OrdersTab({ onGoSwap }: { onGoSwap: () => void }) {
         // already-unlocked session.
         requiresReauth: true,
       });
-      appendTxLog(signer.address!, { hash, kind: "Claim fills", at: Date.now() });
+      recordActivity(signer.address!, {
+        hash, kind: "claim",
+        summary: `${fmt(data.claimableBase)} USDC + ${fmt(data.claimableQuote)} EURC`,
+      });
+      notifyActivity();
+      void refreshActivity();
       haptic.success();
       setLastHash(hash);
       void refetch();
     } catch (e) {
       haptic.error();
-      setActionError(e instanceof Error ? e.message.split("\n")[0].slice(0, 120) : "Claim failed");
+      setActionError(friendlyError(e).message);
     } finally {
       setBusy(null);
     }
@@ -144,13 +159,17 @@ export function OrdersTab({ onGoSwap }: { onGoSwap: () => void }) {
         ...buildCancelTwap(id),
         capValue: Number(remaining) / 1e6,
       });
-      appendTxLog(signer.address!, { hash, kind: "Cancel TWAP", at: Date.now() });
+      recordActivity(signer.address!, {
+        hash, kind: "cancel-twap", summary: `TWAP #${id} · ${fmt(remaining)} remaining`,
+      });
+      notifyActivity();
+      void refreshActivity();
       haptic.success();
       setLastHash(hash);
       void refetch();
     } catch (e) {
       haptic.error();
-      setActionError(e instanceof Error ? e.message.split("\n")[0].slice(0, 120) : "Cancel failed");
+      setActionError(friendlyError(e).message);
     } finally {
       setBusy(null);
     }
@@ -277,14 +296,73 @@ export function OrdersTab({ onGoSwap }: { onGoSwap: () => void }) {
         </section>
       )}
 
-      {nothing && (
+      {nothing && entries.length === 0 && (
         <EmptyState
-          title="No open orders"
-          hint="Resting limit orders, TWAPs and anything waiting to be claimed will show up here."
-          actionLabel="Make a trade"
-          onAction={onGoSwap}
+          title="Nothing here yet"
+          hint="Resting orders, TWAPs and your transaction history will appear here."
         />
       )}
+
+      {entries.length > 0 && (
+        <section>
+          <h3 className="px-1 text-[10px] uppercase tracking-[0.14em] text-faint">Activity</h3>
+          <div className="mt-2 space-y-1.5">
+            {entries.map((e) => (
+              <ActivityRow key={e.hash} entry={e} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
+  );
+}
+
+
+/**
+ * One activity row. Nothing here is inferred: a hash with no receipt reads
+ * pending, and one we stopped waiting on reads "unknown — check Arcscan"
+ * rather than being guessed into a success or a failure.
+ */
+function ActivityRow({ entry }: { entry: ActivityEntry }) {
+  const tone =
+    entry.status === "confirmed"
+      ? "text-mint"
+      : entry.status === "failed"
+        ? "text-rose"
+        : entry.status === "unknown"
+          ? "text-yellow-600"
+          : "text-faint";
+
+  const statusText =
+    entry.status === "pending"
+      ? "pending"
+      : entry.status === "confirmed"
+        ? "confirmed"
+        : entry.status === "failed"
+          ? "failed"
+          : "unknown — check Arcscan";
+
+  return (
+    <a
+      href={arcscan(entry.hash)}
+      target="_blank"
+      rel="noreferrer"
+      className="inner flex min-h-[44px] items-start justify-between gap-3 p-3"
+    >
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-fg">{kindLabel(entry.kind)}</div>
+        <div className="mt-0.5 truncate font-mono text-[11px] text-faint">{entry.summary}</div>
+        {entry.status === "failed" && entry.error && (
+          <div className="mt-0.5 text-[10px] leading-relaxed text-rose">{entry.error}</div>
+        )}
+      </div>
+      <div className="shrink-0 text-right">
+        <div className={`font-mono text-[10px] ${tone}`}>
+          {entry.status === "pending" && <Spinner />}
+          {entry.status !== "pending" && statusText}
+        </div>
+        <div className="mt-0.5 font-mono text-[10px] text-faint">{relativeAgo(entry.at)}</div>
+      </div>
+    </a>
   );
 }

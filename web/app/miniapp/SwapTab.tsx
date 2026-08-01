@@ -13,6 +13,8 @@ import {
   initialSwapSteps, setStep, stepForError, type SwapStep,
 } from "@/lib/txState";
 import { SwapProgressModal } from "./SwapProgressModal";
+import { recordActivity } from "@/lib/activityLog";
+import { notifyActivity } from "@/lib/useActivity";
 import { quoterAbi, routerWriteAbi } from "@/lib/contracts";
 import { usePublicClient } from "wagmi";
 import { REAUTH_THRESHOLD } from "./MiniApp";
@@ -193,9 +195,20 @@ export function SwapTab({ fallbackCap }: { fallbackCap: number | null }) {
         if (e.phase === "sent" && approving) {
           // Folded into step 1, but the hash stays reachable.
           push(setStep(live, "submit", { approvalHash: e.hash }));
+          // Recorded at broadcast: an approval that later fails must still be
+          // visible in the history, not silently absent.
+          recordActivity(owner, {
+            hash: e.hash, kind: "approve", summary: `${amount} ${inSym} for trading`,
+          });
+          notifyActivity();
         }
         if (e.phase === "sent" && !approving) {
           push(setStep(live, "submit", { state: "done", label: "Swap submitted", hash: e.hash }));
+          recordActivity(owner, {
+            hash: e.hash, kind: "swap",
+            summary: `${amount} ${inSym} → ${fmt(fresh.expectedOut)} ${outSym}`,
+          });
+          notifyActivity();
         }
         if (e.phase === "mined" && approving) {
           push(setStep(live, "submit", { label: "Submitting swap…", approvalHash: e.hash }));
