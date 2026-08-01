@@ -76,6 +76,25 @@ export function DepositTab() {
         </div>
       </div>
 
+      {/* Funding comes FIRST: someone opening Deposit with an empty wallet
+          needs the faucet, not a QR code they have nothing to send to. */}
+      <a
+        href="/faucet"
+        target="_blank"
+        rel="noreferrer"
+        className="flex min-h-[44px] items-center justify-between rounded-xl border border-indigo/40 bg-indigo/[0.10] p-4"
+      >
+        <span>
+          <span className="block text-sm font-semibold text-fg">
+            Get testnet USDC &amp; EURC
+          </span>
+          <span className="mt-0.5 block text-[11px] text-faint">
+            Free from Circle&apos;s faucet — takes a minute
+          </span>
+        </span>
+        <ExternalLink size={15} className="shrink-0 text-indigo" />
+      </a>
+
       <section className="inner p-4 text-center">
         {qr ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -100,21 +119,6 @@ export function DepositTab() {
           {copied ? "Copied" : "Copy address"}
         </button>
       </section>
-
-      <a
-        href="https://faucet.circle.com/"
-        target="_blank"
-        rel="noreferrer"
-        className="inner flex min-h-[44px] items-center justify-between p-4"
-      >
-        <span>
-          <span className="block text-sm text-fg">Get testnet USDC</span>
-          <span className="mt-0.5 block text-[11px] text-faint">
-            Circle&apos;s faucet — choose Arc Testnet
-          </span>
-        </span>
-        <ExternalLink size={14} className="shrink-0 text-faint" />
-      </a>
 
       {/*
         CCTP deliberately absent here rather than half-built.

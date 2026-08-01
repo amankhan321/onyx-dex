@@ -1,4 +1,5 @@
 import { custom, type EIP1193RequestFn } from "viem";
+import { backoffDelay, isRateLimited, isTransient, sleep, MAX_ATTEMPTS } from "./rpcRetry";
 
 /**
  * RPC transport with request de-duplication and 429 backoff.
@@ -20,9 +21,6 @@ import { custom, type EIP1193RequestFn } from "viem";
 
 type RpcArgs = { method: string; params?: unknown };
 
-const MAX_ATTEMPTS = 4;
-const BASE_DELAY_MS = 400;
-
 /** Identical concurrent requests share one promise. */
 const inflight = new Map<string, Promise<unknown>>();
 
@@ -36,37 +34,11 @@ const isDedupable = (method: string) =>
   method === "eth_blockNumber" ||
   method === "eth_getBlockByNumber";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-const isRateLimited = (e: unknown) => {
-  const s = String((e as Error)?.message ?? e);
-  return s.includes("429") || /rate.?limit|too many requests/i.test(s);
-};
-
-/**
- * Re-sending a rejected broadcast is safe: the same signed bytes produce the
- * same transaction hash, so a duplicate is idempotent — the network either
- * already has it or accepts it once.
- *
- * A revert or a nonce error is a real answer, not a transport failure. Retrying
- * those would either repeat a doomed transaction or race a nonce that has since
- * been used, so they surface immediately.
- */
-const isRetryableSendFailure = (e: unknown) => {
-  const s = String((e as Error)?.message ?? e).toLowerCase();
-  if (/nonce|already known|replacement|underpriced|revert|insufficient funds/.test(s)) return false;
-  return isRateLimited(e) || /\b5\d\d\b|upstream|network|timeout|fetch failed/.test(s);
-};
-
 async function post(url: string, args: RpcArgs): Promise<unknown> {
   let lastErr: unknown;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      // Exponential backoff with jitter so clients don't retry in lockstep.
-      const delay = BASE_DELAY_MS * 2 ** (attempt - 1);
-      await sleep(delay + Math.random() * delay * 0.5);
-    }
+    if (attempt > 0) await sleep(backoffDelay(attempt));
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -90,8 +62,10 @@ async function post(url: string, args: RpcArgs): Promise<unknown> {
       return json.result;
     } catch (e) {
       lastErr = e;
+      // Sends tolerate transport failures (a re-send of identical signed bytes
+      // is idempotent — same hash); reads only retry on rate limiting.
       const retryable =
-        args.method === "eth_sendRawTransaction" ? isRetryableSendFailure(e) : isRateLimited(e);
+        args.method === "eth_sendRawTransaction" ? isTransient(e) : isRateLimited(e);
       if (!retryable) throw e;
     }
   }

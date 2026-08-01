@@ -265,6 +265,17 @@ export function SwapTab({
         );
       })()}
 
+      {insufficient && (
+        <a
+          href="/faucet"
+          target="_blank"
+          rel="noreferrer"
+          className="block rounded-lg border border-indigo/40 bg-indigo/[0.10] p-3 text-[11px] text-fg"
+        >
+          Not enough {inSym}. <span className="text-indigo underline">Get testnet funds →</span>
+        </a>
+      )}
+
       {overCap && (
         <p className="rounded-lg border border-yellow-500/30 bg-yellow-500/[0.08] p-3 text-[11px] text-yellow-600">
           Capped at {fallbackCap} USDC while your key is in less-secure storage.

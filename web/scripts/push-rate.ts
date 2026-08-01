@@ -20,6 +20,8 @@
 import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arcTestnet, ADDR, rateAbi } from "../lib/contracts";
+import { withRetry, isRateLimited } from "../lib/rpcRetry";
+import { EUR_USD_SOURCES, fetchFirst } from "../lib/fxFeeds";
 import {
   ALERT_AFTER,
   decide,
@@ -30,37 +32,59 @@ import {
   validateFeedRate,
 } from "../lib/rateKeeper";
 
+/** Short, safe error text. Never a full request body — it can carry a payload. */
+function short(e: unknown): string {
+  const s = e instanceof Error ? e.message : String(e);
+  return s.split("\n")[0].slice(0, 100);
+}
+
 /**
- * frankfurter.app is the legacy host and now returns 503 to some clients
- * (reproduced from the browser). .dev is current; .app stays as a fallback so a
- * reversal doesn't silently stop the keeper — which would let the rate age into
- * a halt again.
+ * Tell the operator when a run fails. The keeper dying silently is why a stale
+ * oracle was first noticed by users unable to swap, not by us.
  */
-const FEED_HOSTS = ["https://api.frankfurter.dev", "https://api.frankfurter.app"];
-const FEED_PATH = "/latest?base=EUR&symbols=USD";
+async function notifyAdmin(reason: string) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chat = process.env.TELEGRAM_ADMIN_CHAT_ID;
+  if (!token || !chat) return;
+  const runUrl =
+    process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
+      ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+      : null;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chat,
+        parse_mode: "Markdown",
+        text:
+          `🔴 *FX rate keeper failed*\n\n${reason}\n\n` +
+          "Swaps halt once the rate passes 6h old." +
+          (runUrl ? `\n\n[Run log](${runUrl})` : ""),
+      }),
+    });
+  } catch {
+    /* best-effort; the alert must never mask the original failure */
+  }
+}
 
 function fail(message: string): never {
   console.error(`✗ ${message}`);
-  process.exit(1);
+  // Fire-and-forget: exit is deferred a moment so the alert can leave.
+  void notifyAdmin(message).finally(() => process.exit(1));
+  // Unreachable in practice; satisfies the never return type.
+  throw new Error(message);
 }
 
-async function fetchEurUsd(): Promise<number> {
-  let lastErr: unknown;
-  for (const host of FEED_HOSTS) {
-    try {
-      const res = await fetch(`${host}${FEED_PATH}`, { headers: { accept: "application/json" } });
-      if (!res.ok) throw new Error(`feed HTTP ${res.status}`);
-      const json = (await res.json()) as { rates?: Record<string, unknown> };
-      // validateFeedRate throws on anything non-finite or outside the sane band,
-      // so a broken feed aborts the run rather than being signed into the oracle.
-      const rate = validateFeedRate(json?.rates?.USD);
-      if (host !== FEED_HOSTS[0]) console.log(`feed          : fell back to ${host}`);
-      return rate;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("all FX feed hosts failed");
+async function fetchEurUsd(): Promise<{ rate: number; source: string }> {
+  const { value, source } = await fetchFirst(EUR_USD_SOURCES, (json, s) => {
+    const v = s.extract(json);
+    if (v === undefined) return null;
+    // validateFeedRate throws on anything non-finite or outside the sane band,
+    // so a broken feed aborts the run rather than being signed into the oracle.
+    return validateFeedRate(v);
+  });
+  return { rate: value, source };
 }
 
 async function main() {
@@ -84,21 +108,33 @@ async function main() {
 
   const provider = ADDR.rateProvider as `0x${string}`;
 
-  const [currentWad, updatedAt, block] = await Promise.all([
-    publicClient.readContract({ address: provider, abi: rateAbi, functionName: "rate" }) as Promise<bigint>,
-    publicClient.readContract({ address: provider, abi: rateAbi, functionName: "updatedAt" }) as Promise<bigint>,
-    publicClient.getBlock(),
-  ]);
+  // ONE multicall for both reads, then one block fetch — the fewest calls a run
+  // can make. Run #21 died on a bare updatedAt() that hit -32011 with no retry.
+  const [currentWad, updatedAt] = await withRetry(
+    () =>
+      publicClient.multicall({
+        allowFailure: false,
+        contracts: [
+          { address: provider, abi: rateAbi, functionName: "rate" },
+          { address: provider, abi: rateAbi, functionName: "updatedAt" },
+        ],
+      }) as Promise<[bigint, bigint]>,
+    { onRetry: (n, e, ms) => console.log(`read attempt ${n} failed (${short(e)}), retrying in ${Math.round(ms)}ms`) },
+  );
+
+  const block = await withRetry(() => publicClient.getBlock(), {
+    onRetry: (n, e, ms) => console.log(`block attempt ${n} failed (${short(e)}), retrying in ${Math.round(ms)}ms`),
+  });
 
   const now = Number(block.timestamp);
   const ageSeconds = now - Number(updatedAt);
 
-  const market = await fetchEurUsd();
+  const { rate: market, source: fxSource } = await fetchEurUsd();
   const targetWad = toWad(market);
 
   console.log(`on-chain rate : ${fromWad(currentWad).toFixed(6)}`);
   console.log(`age           : ${formatAge(ageSeconds)}${ageSeconds > STALENESS_WINDOW ? "  ← STALE, swaps halted" : ""}`);
-  console.log(`market (ECB)  : ${market.toFixed(6)}`);
+  console.log(`market (ECB)  : ${market.toFixed(6)}  via ${fxSource}`);
 
   const decision = decide({ ageSeconds, currentWad, targetWad });
   console.log(`decision      : ${decision.action} — ${decision.reason}`);
@@ -111,18 +147,34 @@ async function main() {
   }
 
   const wallet = createWalletClient({ account, chain: arcTestnet, transport: http(rpc, { batch: false }) });
-  const hash = await wallet.writeContract({
-    address: provider,
-    abi: rateAbi,
-    functionName: "setRate",
-    args: [decision.value],
-    chain: arcTestnet,
-  });
+  const send = () =>
+    wallet.writeContract({
+      address: provider,
+      abi: rateAbi,
+      functionName: "setRate",
+      args: [decision.value],
+      chain: arcTestnet,
+    });
+
+  // Re-sending is safe: the same signed transaction has the same hash, so a
+  // duplicate is either already known or accepted once. Only rate limiting and
+  // transport failures retry — a revert or nonce error is a real answer.
+  let hash: `0x${string}`;
+  try {
+    hash = await send();
+  } catch (e) {
+    if (!isRateLimited(e)) throw e;
+    console.log(`send rate-limited (${short(e)}), retrying once`);
+    hash = await withRetry(send, { attempts: 3 });
+  }
 
   console.log(`new rate      : ${fromWad(decision.value).toFixed(6)}`);
   console.log(`tx            : ${hash}`);
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
+  const receipt = await withRetry(
+    () => publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 }),
+    { attempts: 3 },
+  );
   if (receipt.status !== "success") fail(`transaction reverted: ${hash}`);
   console.log(`✓ confirmed in block ${receipt.blockNumber}`);
 }

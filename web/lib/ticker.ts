@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TAPE_SOURCES, fetchFirst } from "./fxFeeds";
 
 /**
  * Reference market rates for the tape.
@@ -25,12 +26,6 @@ export type Tick = {
   kind: "crypto" | "fx";
 };
 
-/**
- * frankfurter.app is the legacy host and now answers browser requests with 503
- * (reproduced), which silently emptied the FX half of the tape. .dev is the
- * current host; .app stays as a fallback in case the migration reverses.
- */
-export const FX_HOSTS = ["https://api.frankfurter.dev", "https://api.frankfurter.app"] as const;
 const CRYPTO_URL =
   "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd";
 
@@ -54,28 +49,17 @@ export function direction(t: Tick): "up" | "down" | "flat" {
 }
 
 async function fetchFx(): Promise<Record<string, number>> {
-  let lastErr: unknown;
-  for (const host of FX_HOSTS) {
-    try {
-      const res = await fetch(`${host}/latest?base=USD&symbols=EUR,GBP,JPY`, {
-        headers: { accept: "application/json" },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as { rates?: Record<string, number> };
-      const r = json?.rates;
-      if (!r) throw new Error("no rates in response");
-      const out: Record<string, number> = {};
-      // Quote the way traders read them, not the way the API returns them.
-      if (Number.isFinite(r.EUR) && r.EUR > 0) out["EUR/USD"] = 1 / r.EUR;
-      if (Number.isFinite(r.GBP) && r.GBP > 0) out["GBP/USD"] = 1 / r.GBP;
-      if (Number.isFinite(r.JPY)) out["USD/JPY"] = r.JPY;
-      if (Object.keys(out).length === 0) throw new Error("no usable rates");
-      return out;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("FX feed unavailable");
+  const { value } = await fetchFirst(TAPE_SOURCES, (json) => {
+    const r = (json as { rates?: Record<string, number> })?.rates;
+    if (!r) return null;
+    const out: Record<string, number> = {};
+    // Quote the way traders read them, not the way the API returns them.
+    if (Number.isFinite(r.EUR) && r.EUR > 0) out["EUR/USD"] = 1 / r.EUR;
+    if (Number.isFinite(r.GBP) && r.GBP > 0) out["GBP/USD"] = 1 / r.GBP;
+    if (Number.isFinite(r.JPY)) out["USD/JPY"] = r.JPY;
+    return Object.keys(out).length > 0 ? out : null;
+  });
+  return value;
 }
 
 async function fetchCrypto(): Promise<Record<string, number>> {

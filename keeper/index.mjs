@@ -76,19 +76,55 @@ const twap = new ethers.Contract(TWAP, twapAbi, wallet);
 
 let lastFx = { value: 1.08, at: 0 };
 
-/** ECB reference rate via frankfurter.app — free, keyless, cached 10 min. */
+/**
+ * ECB reference rate, cached 10 min.
+ *
+ * AUTHORITATIVE: the European Central Bank — every source below republishes its
+ * daily reference rate, which is what the oracle is meant to track.
+ *
+ * This host list is the fix for a real outage: the hardcoded frankfurter.app URL
+ * here had no fallback at all, and that host now fails from most clients. Note
+ * the paths differ — frankfurter.dev REQUIRES /v1, frankfurter.app rejects it,
+ * so each host carries its own full URL rather than sharing a path. Two
+ * spellings of Frankfurter is not redundancy, so exchangerate.host (a separate
+ * operator) is the genuine third source.
+ */
+const FX_SOURCES = [
+  "https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD",
+  "https://api.frankfurter.app/latest?base=EUR&symbols=USD",
+  "https://api.exchangerate.host/latest?base=EUR&symbols=USD",
+];
+
 async function eurUsd() {
   if (Date.now() - lastFx.at < 10 * 60_000) return lastFx.value;
-  try {
-    const r = await fetch("https://api.frankfurter.app/latest?from=EUR&to=USD");
-    const j = await r.json();
-    const v = Number(j?.rates?.USD);
-    if (v > 0.5 && v < 2) lastFx = { value: v, at: Date.now() };
-  } catch (e) {
-    console.warn("fx fetch failed, using last known:", e.message);
+
+  const errors = [];
+  for (const url of FX_SOURCES) {
+    try {
+      const r = await fetch(url, { headers: { accept: "application/json" } });
+      if (!r.ok) {
+        errors.push(`${new URL(url).host}: HTTP ${r.status}`);
+        continue;
+      }
+      const j = await r.json();
+      const v = Number(j?.rates?.USD);
+      // Sanity band: a broken feed must never be signed into the oracle.
+      if (v > 0.5 && v < 2) {
+        lastFx = { value: v, at: Date.now() };
+        return v;
+      }
+      errors.push(`${new URL(url).host}: implausible rate ${v}`);
+    } catch (e) {
+      errors.push(`${new URL(url).host}: ${String(e?.message ?? e).slice(0, 60)}`);
+    }
   }
+
+  // Every source failed. The last known rate is still better than halting, and
+  // the heartbeat keeps the oracle fresh while we wait for a feed to recover.
+  console.warn("fx: all sources failed —", errors.join("; "));
   return lastFx.value;
 }
+
 
 async function tendRate() {
   const cur = await withRetry("rate()", () => rp.rate());
