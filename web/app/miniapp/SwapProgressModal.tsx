@@ -41,7 +41,7 @@ export function SwapProgressModal({
   if (!open) return null;
 
   const failed = steps.find((s) => s.state === "failed");
-  const allDone = steps.every((s) => s.state === "done" || s.state === "skipped");
+  const allDone = steps.every((s) => s.state === "done");
 
   return (
     <div
@@ -81,9 +81,7 @@ export function SwapProgressModal({
                 <StepIcon state={s.state} index={i + 1} />
                 {i < steps.length - 1 && (
                   <div
-                    className={`my-1 w-px flex-1 ${
-                      s.state === "done" || s.state === "skipped" ? "bg-mint/40" : "bg-white/10"
-                    }`}
+                    className={`my-1 w-px flex-1 ${s.state === "done" ? "bg-mint/40" : "bg-white/10"}`}
                     style={{ minHeight: 14 }}
                   />
                 )}
@@ -95,9 +93,6 @@ export function SwapProgressModal({
                   }`}
                 >
                   {s.label}
-                  {s.state === "skipped" && (
-                    <span className="ml-1.5 text-[10px] text-faint">not needed</span>
-                  )}
                 </div>
                 {s.detail && (
                   <div
@@ -108,16 +103,29 @@ export function SwapProgressModal({
                     {s.detail}
                   </div>
                 )}
-                {s.hash && (
-                  <a
-                    href={`https://testnet.arcscan.app/tx/${s.hash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 inline-flex items-center gap-1 font-mono text-[10px] text-indigo"
-                  >
-                    {s.hash.slice(0, 10)}… <ExternalLink size={9} />
-                  </a>
-                )}
+                <div className="mt-1 flex flex-wrap items-center gap-3">
+                  {/* The approve is folded into step 1 but stays in the record. */}
+                  {s.approvalHash && (
+                    <a
+                      href={`https://testnet.arcscan.app/tx/${s.approvalHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 font-mono text-[10px] text-faint"
+                    >
+                      approval <ExternalLink size={9} />
+                    </a>
+                  )}
+                  {s.hash && (
+                    <a
+                      href={`https://testnet.arcscan.app/tx/${s.hash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 font-mono text-[10px] text-indigo"
+                    >
+                      {s.hash.slice(0, 10)}… <ExternalLink size={9} />
+                    </a>
+                  )}
+                </div>
               </div>
             </li>
           ))}
@@ -147,7 +155,6 @@ export function SwapProgressModal({
 function StepIcon({ state, index }: { state: SwapStep["state"]; index: number }) {
   const base = "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px]";
   if (state === "done") return <div className={`${base} border-mint bg-mint/15 text-mint`}><Check size={12} /></div>;
-  if (state === "skipped") return <div className={`${base} border-[color:var(--line)] text-faint`}>—</div>;
   if (state === "active")
     return (
       <div className={`${base} border-indigo bg-indigo/15 text-indigo`}>

@@ -106,12 +106,12 @@ export function SwapTab({ fallbackCap }: { fallbackCap: number | null }) {
         args: [owner, ADDR.router as `0x${string}`],
       })) as bigint;
       const needsApproval = allowance < amountIn;
-      push(initialSwapSteps(needsApproval));
+      push(initialSwapSteps());
 
       // 2c — re-quote immediately before submitting. The on-screen quote can be
       // seconds old, and limitTick/bookIn are only valid against the book they
       // were computed from; a stale one reverts as Slippage or WouldCross.
-      push(setStep(live, "swap", { state: "active", detail: "Refreshing quote…" }));
+      push(setStep(live, "submit", { state: "active", detail: "Refreshing quote…" }));
       const fresh = (await client.readContract({
         address: ADDR.quoter as `0x${string}`,
         abi: quoterAbi,
@@ -146,7 +146,7 @@ export function SwapTab({ fallbackCap }: { fallbackCap: number | null }) {
 
       // 2c — simulate before spending gas, so a predictable revert is reported
       // as a reason rather than a failed transaction the user pays for.
-      push(setStep(live, "swap", { state: "active", detail: "Checking the trade…" }));
+      push(setStep(live, "submit", { state: "active", detail: "Checking the trade…" }));
       try {
         await client.simulateContract({
           address: ADDR.router as `0x${string}`,
@@ -176,24 +176,35 @@ export function SwapTab({ fallbackCap }: { fallbackCap: number | null }) {
           ]
         : [swapReq];
 
-      push(setStep(live, "swap", { state: "pending", detail: undefined }));
+      
       setTx({ status: "broadcasting" });
 
+      // Unlock is not a row: in a live session it is instant, and when a
+      // password is needed the prompt is the feedback.
       const hashes = await signer.writeBatch(reqs, (e) => {
-        if (e.phase === "unlocking") push(setStep(live, "unlock", { state: "active" }));
+        const approving = e.phase !== "unlocking" && e.label === "Approve token";
         if (e.phase === "sending") {
-          push(setStep(setStep(live, "unlock", { state: "done" }),
-            e.label === "Approve token" ? "approve" : "swap", { state: "active" }));
+          push(setStep(live, "submit", {
+            state: "active",
+            label: approving ? `Approving ${inSym}…` : "Submitting swap…",
+            detail: undefined,
+          }));
         }
-        if (e.phase === "sent") {
-          const id = e.label === "Approve token" ? "approve" : "swap";
-          push(setStep(live, id, { state: id === "approve" ? "active" : "done", hash: e.hash }));
+        if (e.phase === "sent" && approving) {
+          // Folded into step 1, but the hash stays reachable.
+          push(setStep(live, "submit", { approvalHash: e.hash }));
         }
-        if (e.phase === "mined") push(setStep(live, "approve", { state: "done", hash: e.hash }));
+        if (e.phase === "sent" && !approving) {
+          push(setStep(live, "submit", { state: "done", label: "Swap submitted", hash: e.hash }));
+        }
+        if (e.phase === "mined" && approving) {
+          push(setStep(live, "submit", { label: "Submitting swap…", approvalHash: e.hash }));
+        }
       });
 
       const hash = hashes[hashes.length - 1];
-      push(setStep(live, "confirm", { state: "active", detail: "Waiting for the block…" }));
+      push(setStep(setStep(live, "submit", { state: "done", label: "Swap submitted" }),
+        "confirm", { state: "active", detail: "Waiting for the block…" }));
       setTx({ status: "pending", hash });
 
       const receipt = await client.waitForTransactionReceipt({ hash, timeout: 90_000 });
@@ -209,8 +220,17 @@ export function SwapTab({ fallbackCap }: { fallbackCap: number | null }) {
     } catch (e) {
       haptic.error();
       const { message, detail } = friendlyError(e);
-      const where = stepForError(e);
-      if (live.length) push(setStep(live, where, { state: "failed", detail: message }));
+      // An approval that never landed is a submission failure, never a swap
+      // failure — reporting "the swap reverted" for it would be wrong.
+      const approveFailed = /approve|allowance/i.test(String((e as Error)?.message ?? ""));
+      const where = approveFailed ? "submit" : stepForError(e);
+      if (live.length) {
+        push(setStep(live, where, {
+          state: "failed",
+          detail: message,
+          ...(approveFailed ? { label: `Approving ${inSym} failed` } : {}),
+        }));
+      }
       setTx({ status: "failed", message, detail });
     }
   }

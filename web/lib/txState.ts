@@ -102,33 +102,38 @@ export function friendlyError(err: unknown): { message: string; detail?: string 
  * from a missing allowance from an on-chain revert, and those need completely
  * different responses from the user.
  */
-export type SwapStepState = "pending" | "active" | "done" | "failed" | "skipped";
+export type SwapStepState = "pending" | "active" | "done" | "failed";
 
+/**
+ * A swap has two steps the user can act on.
+ *
+ * Unlock is not one: inside a live session it is instant and says nothing, and
+ * when a password IS needed the prompt is itself the feedback. A row that is
+ * either invisible or redundant is noise.
+ *
+ * Approve is a real transaction and stays in the record — but it is part of
+ * submitting, not a separate thing the user does. It folds into step 1, which
+ * relabels while the approval is in flight and keeps its hash reachable.
+ */
 export type SwapStep = {
-  id: "unlock" | "approve" | "swap" | "confirm";
+  id: "submit" | "confirm";
   label: string;
   state: SwapStepState;
   detail?: string;
   hash?: string;
+  /** The approval's hash, surfaced on step 1 so the record stays complete. */
+  approvalHash?: string;
 };
 
-export const initialSwapSteps = (needsApproval: boolean): SwapStep[] => [
-  { id: "unlock", label: "Unlock wallet", state: "pending" },
-  {
-    id: "approve",
-    label: "Approve token",
-    // Marked skipped up front when the allowance already covers it, rather than
-    // shown as a step that silently never runs.
-    state: needsApproval ? "pending" : "skipped",
-  },
-  { id: "swap", label: "Submit swap", state: "pending" },
-  { id: "confirm", label: "Confirm on Arc", state: "pending" },
+export const initialSwapSteps = (): SwapStep[] => [
+  { id: "submit", label: "Submitting swap", state: "pending" },
+  { id: "confirm", label: "Confirming on Arc", state: "pending" },
 ];
 
 export function setStep(
   steps: SwapStep[],
   id: SwapStep["id"],
-  patch: Partial<Omit<SwapStep, "id" | "label">>,
+  patch: Partial<Omit<SwapStep, "id">>,
 ): SwapStep[] {
   return steps.map((s) => (s.id === id ? { ...s, ...patch } : s));
 }
@@ -136,8 +141,8 @@ export function setStep(
 /** Which step to blame when a throw arrives with no step context. */
 export function stepForError(err: unknown): SwapStep["id"] {
   const s = String((err as Error)?.message ?? err).toLowerCase();
-  if (/wrong password|corrupted keystore|cancelled|user rejected/.test(s)) return "unlock";
-  if (/allowance|approve/.test(s)) return "approve";
-  if (/revert|slippage|wouldcross|stalerate|expired/.test(s)) return "confirm";
-  return "swap";
+  // Only a revert of the swap itself belongs to "confirming" — everything
+  // before the transaction lands, including a failed approval, is submission.
+  if (/reverted on-chain|slippage|wouldcross|stalerate|expired/.test(s)) return "confirm";
+  return "submit";
 }
