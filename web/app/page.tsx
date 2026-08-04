@@ -20,10 +20,42 @@ import { CountUp } from "@/components/CountUp";
 import { Float } from "@/components/Reveal";
 import { usePool } from "@/lib/useBook";
 import { fmt } from "@/lib/contracts";
+import { STALE_ROUTE_SITE } from "@/lib/bot/quote";
+import { STALE_RATE_SELECTOR } from "@/lib/rateKeeper";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 const TABS = ["Swap", "Make", "TWAP", "Pool", "Bridge", "Faucet"] as const;
 type Tab = (typeof TABS)[number];
+
+/**
+ * The stale-oracle notice, shared by both halted states below so they cannot
+ * drift apart the way the hand-written copies did.
+ *
+ * The route is a real control, not prose: Swap and the Limit panel live on
+ * different tabs (:95, :96), so telling a reader to "use the Limit panel" while
+ * they are on the Swap tab points at something not on screen. One tap switches
+ * to Make and scrolls the terminal into view, matching BookLadder's onMake.
+ *
+ * The wording itself is STALE_ROUTE_SITE from lib/bot/quote — no stale copy is
+ * a literal on any surface.
+ */
+function StalePanel({ onMake, detail }: { onMake: () => void; detail: string }) {
+  return (
+    <div className="mx-auto mt-2 max-w-xl rounded-[12px] border border-yellow-500/30 bg-yellow-500/[0.06] p-3 text-[12px] leading-relaxed text-yellow-500/90">
+      <p>
+        FX rate is stale, so instant swaps and adding liquidity are paused. {detail} Trading
+        resumes on the next rate update.
+      </p>
+      <button
+        type="button"
+        onClick={onMake}
+        className="mt-2 rounded-[8px] border border-yellow-500/40 px-2.5 py-1.5 text-left text-[12px] font-medium text-yellow-500 transition hover:bg-yellow-500/10"
+      >
+        {STALE_ROUTE_SITE}
+      </button>
+    </div>
+  );
+}
 
 /**
  * Terminal-first layout. The product is the hero: the exchange sits top-left
@@ -32,6 +64,12 @@ type Tab = (typeof TABS)[number];
 export default function Page() {
   const { data: pool, error: poolError } = usePool();
   const [tab, setTab] = useState<Tab>("Swap");
+  // Same jump BookLadder's onMake uses (:150 there): switch tab, bring the
+  // terminal into view. Shared so the stale panel behaves identically.
+  const goToMake = () => {
+    setTab("Make");
+    document.getElementById("terminal")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const heroRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const el = heroRef.current;
@@ -104,23 +142,17 @@ export default function Page() {
 
           <Rise>
             {pool?.rateStale && !poolError && (
-              <p className="mx-auto mt-2 max-w-xl rounded-[12px] border border-yellow-500/30 bg-yellow-500/[0.06] p-3 text-[12px] leading-relaxed text-yellow-500/90">
-                FX rate is stale, so instant swaps and adding liquidity are paused and
-                the rate-derived figures below are unavailable — that&apos;s the safety
-                design, not an outage. Pool reserves are live and LP withdrawals still
-                work. The order book is unaffected — use the Limit panel above to set
-                your own price. Trading resumes on the next rate update.
-              </p>
+              <StalePanel
+                onMake={goToMake}
+                detail="Pool reserves are live and the rate-derived figures below are unavailable — that's the safety design, not an outage. LP withdrawals still work."
+              />
             )}
             {poolError &&
-              (poolError.message.includes("0xec30f4ab") ? (
-                <p className="mx-auto mt-2 max-w-xl rounded-[12px] border border-yellow-500/30 bg-yellow-500/[0.06] p-3 text-[12px] leading-relaxed text-yellow-500/90">
-                  FX oracle is stale, so instant swaps and adding liquidity are
-                  paused — that&apos;s the safety design, not an outage. LP
-                  withdrawals still work, and the order book is unaffected: use
-                  the Limit panel above to set your own price. Trading resumes on
-                  the next rate update.
-                </p>
+              (poolError.message.includes(STALE_RATE_SELECTOR) ? (
+                <StalePanel
+                  onMake={goToMake}
+                  detail="That's the safety design, not an outage. LP withdrawals still work."
+                />
               ) : (
                 <p className="mx-auto mt-2 max-w-xl break-words rounded-[12px] border border-rose/30 bg-rose/[0.06] p-3 font-mono text-[11px] leading-relaxed text-rose">
                   RPC error: {poolError.message.slice(0, 220)}
@@ -146,12 +178,7 @@ export default function Page() {
         {/* -------- the book, full width -------- */}
         <Stagger gap={0.06} className="mt-6">
           <SlideIn from="right" distance={70}>
-            <BookLadder
-              onMake={() => {
-                setTab("Make");
-                document.getElementById("terminal")?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
-            />
+            <BookLadder onMake={goToMake} />
           </SlideIn>
         </Stagger>
 

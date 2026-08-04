@@ -13,6 +13,7 @@ import {
   requiresLiveRate,
   survivesStaleOracle,
   STALE_SWAP_SHORT,
+  BOOK_UNAFFECTED,
   STALE_ROUTE_CHAT,
   STALE_ROUTE_SITE,
   STALE_ROUTE_MINIAPP,
@@ -272,14 +273,25 @@ test("REQUIRED: every surface shares the reason, but the route is surface-approp
   assert.match(STALE_ROUTE_CHAT, /\/limit/);
 
   // A browser visitor has no chat prompt — the site must point at the panel,
-  // never tell them to type a slash command.
+  // never tell them to type a slash command. And because Swap and the Limit
+  // panel are on DIFFERENT tabs (page.tsx :95 vs :96), it must name the tab
+  // rather than imply the panel is already on screen.
   assert.doesNotMatch(STALE_ROUTE_SITE, /\/limit/);
-  assert.match(STALE_ROUTE_SITE, /Limit panel/i);
+  assert.match(STALE_ROUTE_SITE, /Make tab/, "site route must name the Make tab");
+  assert.doesNotMatch(STALE_ROUTE_SITE, /on this page|above/i, "must not imply the panel is visible");
 
-  // The Mini App has no limit UI at all, so it must say where limit orders
-  // actually live rather than implying an in-app route.
+  // The Mini App has no limit UI and no Make tab, so it must send the user to
+  // the bot chat and must NOT name a tab that doesn't exist there.
   assert.match(STALE_ROUTE_MINIAPP, /bot chat/i);
+  assert.doesNotMatch(STALE_ROUTE_MINIAPP, /tab/i, "Mini App has no Make tab to point at");
   assert.match(STALE_ROUTE_MINIAPP, /order book is unaffected/i);
+});
+
+test("the book-unaffected opener is one shared constant, composed everywhere", () => {
+  // It was a literal in both renderPrice and staleSwapMessage.
+  assert.ok(staleSwapMessage(25_000).includes(BOOK_UNAFFECTED));
+  const stalePrice = renderPrice(freshOracle({ stale: true, ageSeconds: 25_000 }), BOOK);
+  assert.ok(stalePrice.includes(BOOK_UNAFFECTED));
 });
 
 test("the chat message still carries the reason and the chat route", () => {

@@ -225,7 +225,7 @@ export function renderPrice(oracle: OracleStatus, book: BookStatus): string {
     lines.push("Book: no resting orders on one or both sides");
   }
   // The book has no oracle dependency, so say what still works.
-  if (oracle.stale) lines.push(`The USDC/EURC limit order book is unaffected: ${STALE_ROUTE_CHAT}`);
+  if (oracle.stale) lines.push(`${BOOK_UNAFFECTED}: ${STALE_ROUTE_CHAT}`);
   return lines.join("\n");
 }
 
@@ -259,18 +259,31 @@ export const STALE_SWAP_SHORT = "FX oracle stale — instant swaps paused by des
 
 /**
  * The ROUTE is per-surface, because "/limit" is only actionable where a chat
- * prompt exists. The reason above stays identical everywhere; only the way out
- * differs. Kept side by side here so the three remain reviewable together.
+ * prompt exists, and because the limit UI is in a different place on each.
+ * The reason above stays identical everywhere; only the way out differs. Kept
+ * side by side here so the three remain reviewable together.
  */
+
+/** Shared opener for the route sentence — one literal, composed everywhere. */
+export const BOOK_UNAFFECTED = "The USDC/EURC limit order book is unaffected";
 
 /** Telegram chat: slash commands are typed directly. */
 export const STALE_ROUTE_CHAT = "/limit still works — you set the price yourself.";
 
-/** Public site: there is a Limit panel on the same page. No slash commands in a browser. */
+/**
+ * Public site: the Limit panel lives behind the "Make" tab (app/page.tsx:25,
+ * :96) and Swap renders on its own tab (:95), so the two are never on screen
+ * together. Naming the tab is the whole point — "on this page" would point at
+ * something the reader cannot see. No slash commands in a browser.
+ */
 export const STALE_ROUTE_SITE =
-  "The order book is unaffected — use the Limit panel on this page to set your own price.";
+  "The order book is unaffected — open the Make tab to place a limit order at your own price.";
 
-/** Mini App: no limit UI exists there; limit orders are placed from the bot chat. */
+/**
+ * Mini App: no limit UI exists there at all (LimitPanel is imported only by
+ * app/page.tsx), and there is no Make tab, so it must send the user to the bot
+ * chat rather than name a tab that does not exist here.
+ */
 export const STALE_ROUTE_MINIAPP =
   "The order book is unaffected — place a limit order from the Onyx bot chat with /limit.";
 
@@ -278,7 +291,7 @@ export const STALE_ROUTE_MINIAPP =
 export function staleSwapMessage(ageSeconds: number): string {
   return (
     `FX oracle is stale (rate ${formatAge(ageSeconds)} old) — instant swaps are paused by design ` +
-    `until the next rate update. The USDC/EURC limit order book is unaffected: ${STALE_ROUTE_CHAT}`
+    `until the next rate update. ${BOOK_UNAFFECTED}: ${STALE_ROUTE_CHAT}`
   );
 }
 
