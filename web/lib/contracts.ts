@@ -47,6 +47,7 @@ export const poolAbi = [
   { type: "function", name: "balance1", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "getVirtualPrice", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "getDy", stateMutability: "view", inputs: [{ type: "bool" }, { type: "uint256" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "feeBps", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "totalSupply", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;
 
