@@ -116,9 +116,28 @@ test("/twap defaults slice count from duration and reports it", () => {
     assert.equal(r.payload.total, "500");
     assert.equal(r.payload.durationSeconds, 7200);
     assert.equal(r.payload.slices, defaultTwapSlices(7200)); // 6 at ~20m/slice
-    assert.equal(r.payload.zeroForOne, true);
+    assert.equal(r.payload.zeroForOne, false); // sell = selling EURC, like /sell
   }
   assert.ok(r.kind === "sign" && r.defaultsUsed.some((d) => d.includes("slices")));
+});
+
+test("INVARIANT: 'sell' means one direction across /sell and /twap sell (and 'buy' likewise)", () => {
+  // Locks the fix for decision #4: two commands with the word "sell" must never
+  // trade in opposite directions. If someone flips one, this fails.
+  const dir = (r: ReturnType<typeof parseCommand>): boolean | undefined =>
+    r.kind === "sign" && "zeroForOne" in r.payload ? r.payload.zeroForOne : undefined;
+
+  const marketSell = parseCommand("/sell 100", S);
+  const twapSell = parseCommand("/twap sell 100 over 2h", S);
+  const marketBuy = parseCommand("/buy 100", S);
+  const twapBuy = parseCommand("/twap buy 100 over 2h", S);
+
+  assert.equal(dir(marketSell), false, "market sell = selling EURC");
+  assert.equal(dir(twapSell), false, "twap sell must match market sell");
+  assert.equal(dir(marketBuy), true, "market buy = spending USDC");
+  assert.equal(dir(twapBuy), true, "twap buy must match market buy");
+  assert.equal(dir(twapSell), dir(marketSell));
+  assert.equal(dir(twapBuy), dir(marketBuy));
 });
 
 test("/twap accepts an explicit slice count and does not report a default", () => {

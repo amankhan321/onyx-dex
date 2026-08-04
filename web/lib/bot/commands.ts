@@ -82,8 +82,16 @@ export type TradePayload =
     }
   | {
       command: "twap";
-      /** sell = selling USDC (zeroForOne true), matching the deployed executor. */
+      /**
+       * Market/router convention (see `zeroForOneForBuy`): true = sell USDC for
+       * EURC. TWAP follows the market commands exactly — `/twap sell` sells EURC
+       * (false), `/twap buy` spends USDC (true) — so "sell" never means opposite
+       * things across commands. The deployed executor's own zeroForOne flag must
+       * be verified on-chain and translated at the intent-constructor boundary if
+       * it differs; the mapping test locks parser agreement in the meantime.
+       */
       zeroForOne: boolean;
+      /** Total amount, denominated in the token being given away (EURC on sell, USDC on buy). */
       total: string;
       durationSeconds: number;
       slices: number;
@@ -129,6 +137,20 @@ export function producesDeepLink(r: ParseResult): boolean {
 export function isServerSide(r: ParseResult): boolean {
   return r.kind === "read";
 }
+
+/**
+ * The ONE market-direction rule, shared by /buy, /sell and /twap so the word
+ * "sell" can never mean opposite things across commands.
+ *
+ * The pair is EURC/USDC: USDC is the quote currency, EURC is the asset.
+ *   buy  = spend USDC, receive EURC = sell token0 (USDC) → zeroForOne true
+ *   sell = sell EURC,  receive USDC = sell token1 (EURC) → zeroForOne false
+ *
+ * `zeroForOne` here is the router/pool convention used everywhere in the app
+ * (SwapTab, useSwapQuote, onyxActions). The amount a user names is always the
+ * token they give away: USDC on buy, EURC on sell.
+ */
+export const zeroForOneForBuy = (isBuy: boolean): boolean => isBuy;
 
 const ALL_COMMANDS: string[] = [...READ_COMMANDS, ...SIGN_COMMANDS];
 
@@ -339,7 +361,8 @@ export function parseCommand(input: string, settings: Settings = DEFAULT_SETTING
         kind: "sign",
         payload: {
           command,
-          zeroForOne: buy,
+          zeroForOne: zeroForOneForBuy(buy),
+          // Amount is denominated in the token given away: USDC on buy, EURC on sell.
           tokenIn: buy ? BASE : QUOTE,
           amount,
           slippageBps: settings.slippageBps,
@@ -396,7 +419,8 @@ export function parseCommand(input: string, settings: Settings = DEFAULT_SETTING
       }
       return {
         kind: "sign",
-        payload: { command: "twap", zeroForOne: side === "sell", total, durationSeconds, slices },
+        // Same direction rule as /buy and /sell: sell = selling EURC (false).
+        payload: { command: "twap", zeroForOne: zeroForOneForBuy(side === "buy"), total, durationSeconds, slices },
         defaultsUsed,
       };
     }
