@@ -61,3 +61,16 @@ jobs:
       # the class of error that would otherwise reach production.
       - name: Typecheck
         run: npx tsc --noEmit
+
+      # Bot parser + intent-store unit tests (node:test via tsx). These are the
+      # invariants trades depend on — no signature-free command yields a deep
+      # link, intents can't be replayed/cross-used/expired-then-signed, and
+      # /twap can't drift in direction from /buy and /sell.
+      - name: Bot unit tests
+        run: npm test
+
+      # A direct rpc.testnet.arc.network reference in browser code 403s on the
+      # Origin header and silently breaks writes. Make that a pipeline failure,
+      # not something spotted by hand.
+      - name: RPC build guard
+        run: npm run check-rpc
