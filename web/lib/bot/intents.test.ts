@@ -7,8 +7,8 @@ import {
   newIntentId,
   INTENT_TTL_MS,
   type IntentStore,
-} from "./intents.ts";
-import type { TradePayload } from "./commands.ts";
+} from "./intents";
+import type { TradePayload } from "./commands";
 
 const buy: TradePayload = {
   command: "buy",
@@ -106,7 +106,7 @@ test("unknown id fails closed", async () => {
 
 test("wrong-user and not-found are indistinguishable to a prober", async () => {
   // Both map to the same user-facing message, so an attacker can't enumerate ids.
-  const { consumeErrorMessage } = await import("./intents.ts");
+  const { consumeErrorMessage } = await import("./intents");
   assert.equal(consumeErrorMessage("wrong-user"), consumeErrorMessage("not-found"));
 });
 

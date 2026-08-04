@@ -9,7 +9,7 @@ import {
   SIGN_COMMANDS,
   defaultTwapSlices,
   type Settings,
-} from "./commands.ts";
+} from "./commands";
 
 const S: Settings = { slippageBps: 50 };
 
