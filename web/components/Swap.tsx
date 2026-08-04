@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { ArrowDown, ChevronDown } from "lucide-react";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { ADDR, arcTestnet, erc20Abi, fmt, parse, poolAbi, quoterAbi, routerAbi } from "@/lib/contracts";
+import { STALE_RATE_SELECTOR } from "@/lib/rateKeeper";
+import { STALE_LIMIT_HINT, STALE_SWAP_SHORT } from "@/lib/bot/quote";
 import { useBalance, useReadContract } from "wagmi";
 import { RouteSplit, type Quote } from "./RouteSplit";
 import { SwapModal, type SwapStage } from "./SwapModal";
@@ -134,8 +136,8 @@ export function Swap() {
         if (!quote) {
           const m = e instanceof Error ? e.message : "quote failed";
           setStatus(
-            m.includes("0xec30f4ab")
-              ? "FX oracle stale — swaps paused by design until the next rate update"
+            m.includes(STALE_RATE_SELECTOR)
+              ? `${STALE_SWAP_SHORT}. ${STALE_LIMIT_HINT}`
               : `quote error: ${m.split("\n")[0].slice(0, 120)}`,
           );
         }

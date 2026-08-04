@@ -8,6 +8,12 @@ import {
   describeSwap,
   refusalMessage,
   formatUnits6,
+  staleGate,
+  staleSwapMessage,
+  requiresLiveRate,
+  survivesStaleOracle,
+  STALE_SWAP_SHORT,
+  STALE_LIMIT_HINT,
   PAIR,
   type Reads,
   type OracleStatus,
@@ -180,6 +186,85 @@ test("renderPrice shows rate age and, when present, book mid + spread; flags sta
   const stale = renderPrice(freshOracle({ stale: true, ageSeconds: 25_000 }), { bestBidTick: 0, bestAskTick: 0 });
   assert.match(stale, /STALE|paused/i);
   assert.match(stale, /no resting orders/i);
+});
+
+// --------------------------- stale-oracle policy ---------------------------
+
+test("REQUIRED: stale ⇒ /buy and /sell refused, refusal names /limit, and /limit is not refused", async () => {
+  const stale = freshOracle({ stale: true, ageSeconds: 25_000 });
+
+  // /buy and /sell are refused...
+  for (const zeroForOne of [true, false]) {
+    const r = await quoteSwap(fakeReads({ oracle: stale }), { zeroForOne, amountIn: AMT });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.reason, "stale-oracle");
+    // ...and the refusal points at the working route.
+    assert.match(refusalMessage(r as never), /\/limit/);
+  }
+
+  // The gate agrees for both market sides and for twap.
+  for (const cmd of ["buy", "sell", "twap"]) {
+    const gate = staleGate(cmd, stale);
+    assert.ok(gate, `${cmd} must be gated while stale`);
+    assert.match(gate!, /\/limit/, `${cmd} refusal must name /limit`);
+  }
+
+  // /limit itself is NOT refused — the book has no oracle dependency.
+  assert.equal(staleGate("limit", stale), null);
+});
+
+test("REQUIRED: the stale refusal never offers /twap as the fallback", () => {
+  // TWAP slices execute against the AMM and would fail one by one.
+  const msg = staleSwapMessage(25_000);
+  assert.match(msg, /\/limit/);
+  assert.doesNotMatch(msg, /\/twap/);
+});
+
+test("commands that need a live rate vs those that survive a halt", () => {
+  for (const c of ["buy", "sell", "twap", "quote"]) {
+    assert.equal(requiresLiveRate(c), true, `${c} needs the AMM`);
+    assert.equal(survivesStaleOracle(c), false);
+  }
+  for (const c of ["limit", "cancel", "withdraw", "price", "orders", "help", "balance", "activity"]) {
+    assert.equal(survivesStaleOracle(c), true, `${c} must survive a halt`);
+    assert.equal(staleGate(c, freshOracle({ stale: true, ageSeconds: 25_000 })), null);
+  }
+});
+
+test("a fresh oracle gates nothing", () => {
+  for (const c of ["buy", "sell", "twap", "limit", "price"]) {
+    assert.equal(staleGate(c, freshOracle()), null);
+  }
+});
+
+test("REQUIRED: /price keeps working while stale — real rate, its age, a stale label, never 0", () => {
+  const stale = freshOracle({ stale: true, ageSeconds: 25_000 });
+  const out = renderPrice(stale, BOOK);
+  assert.ok(out.includes(PAIR));
+  assert.match(out, /FX rate 1\.0850/, "the real rate is still shown");
+  assert.doesNotMatch(out, /FX rate 0\.0000/, "never substitutes 0");
+  assert.match(out, /6\.9h old/, "age is shown");
+  assert.match(out, /STALE/, "error state is labelled, distinct from an empty book");
+  assert.match(out, /\/limit/, "says what still works");
+  // Book data is independent of the oracle and still rendered.
+  assert.match(out, /mid .* spread/);
+});
+
+test("a halted oracle and an empty book are visually distinct states", () => {
+  const staleWithBook = renderPrice(freshOracle({ stale: true, ageSeconds: 25_000 }), BOOK);
+  const freshNoBook = renderPrice(freshOracle(), { bestBidTick: 0, bestAskTick: 0 });
+  assert.match(staleWithBook, /STALE/);
+  assert.doesNotMatch(staleWithBook, /no resting orders/);
+  assert.match(freshNoBook, /no resting orders/);
+  assert.doesNotMatch(freshNoBook, /STALE/);
+});
+
+test("the stale wording is one shared constant, not a per-surface literal", () => {
+  // useSwapQuote.ts and components/Swap.tsx import these; the chat message
+  // builds on the same strings, so the three cannot drift.
+  assert.ok(STALE_SWAP_SHORT.length > 0);
+  assert.match(staleSwapMessage(25_000), new RegExp("instant swaps are paused by design"));
+  assert.ok(staleSwapMessage(25_000).includes(STALE_LIMIT_HINT));
 });
 
 test("formatUnits6 renders 6-dp amounts with thousands separators", () => {

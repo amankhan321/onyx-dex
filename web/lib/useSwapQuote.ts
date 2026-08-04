@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { usePublicClient } from "wagmi";
 import { ADDR, arcTestnet, poolAbi, quoterAbi } from "./contracts";
+import { STALE_RATE_SELECTOR } from "./rateKeeper";
+import { STALE_LIMIT_HINT, STALE_SWAP_SHORT } from "./bot/quote";
 
 /**
  * Swap quoting, lifted out of the site's Swap component so the Mini App shows
@@ -67,8 +69,8 @@ export function useSwapQuote(zeroForOne: boolean, amountIn: bigint) {
           if (!prev) {
             const m = e instanceof Error ? e.message : "quote failed";
             setError(
-              m.includes("0xec30f4ab")
-                ? "FX oracle stale — swaps paused by design until the next rate update"
+              m.includes(STALE_RATE_SELECTOR)
+                ? `${STALE_SWAP_SHORT}. ${STALE_LIMIT_HINT}`
                 : "Couldn't fetch a quote. Retrying…",
             );
           }

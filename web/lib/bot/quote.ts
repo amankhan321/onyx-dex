@@ -191,12 +191,16 @@ export function formatRouteSplit(bookShare: number): string {
   return `Route: ${book}% book · ${100 - book}% curve`;
 }
 
-/** Rate as EUR/USD with its age. Shown even when stale, with a note. */
+/**
+ * Rate with its age. When stale the real rate is still shown — never hidden and
+ * never substituted with 0, so a halted feed reads as an error state rather than
+ * an empty one.
+ */
 export function formatRateLine(oracle: OracleStatus): string {
   const rate = Number(oracle.rateWad) / 1e18;
   const age = formatAge(oracle.ageSeconds);
   return oracle.stale
-    ? `FX rate ${rate.toFixed(4)} — ${age} old, STALE (swaps paused until the next update)`
+    ? `FX rate ${rate.toFixed(4)} · ${age} old — STALE, instant swaps paused by design until the next rate update`
     : `FX rate ${rate.toFixed(4)} · ${age} old`;
 }
 
@@ -204,7 +208,11 @@ function priceOfTick(tick: number): number {
   return tick * TICK_SIZE;
 }
 
-/** /price view: names the pair, oracle rate + age, book mid + spread. */
+/**
+ * /price view: names the pair, oracle rate + age (even when stale), book mid +
+ * spread. The book section is independent of the oracle — an empty book and a
+ * halted oracle are different states and read differently.
+ */
 export function renderPrice(oracle: OracleStatus, book: BookStatus): string {
   const lines = [PAIR, formatRateLine(oracle)];
   if (book.bestBidTick > 0 && book.bestAskTick > 0) {
@@ -216,6 +224,8 @@ export function renderPrice(oracle: OracleStatus, book: BookStatus): string {
   } else {
     lines.push("Book: no resting orders on one or both sides");
   }
+  // The book has no oracle dependency, so say what still works.
+  if (oracle.stale) lines.push(STALE_LIMIT_HINT);
   return lines.join("\n");
 }
 
@@ -232,11 +242,71 @@ export function renderQuote(q: SwapQuote): string {
   return lines.join("\n");
 }
 
+/**
+ * The ONE stale-oracle wording, shared by the chat bot, the Mini App
+ * (useSwapQuote) and the site (components/Swap). It lived as three separate
+ * string literals that had to be edited in lockstep; a single constant is why
+ * they can no longer drift.
+ *
+ * Why it names /limit: RateProvider.getRate() is called only by StableSwap
+ * (:110, :126, :200), so a stale rate halts the AMM and LP actions. OrderBook
+ * has no oracle dependency at all — prices are maker-set ticks — so the limit
+ * book keeps working. TWAP is deliberately NOT offered as the fallback: its
+ * slices execute against the AMM and would fail one by one.
+ */
+export const STALE_SWAP_SHORT = "FX oracle stale — instant swaps paused by design until the next rate update";
+
+/** The full guidance, for surfaces with room for a second line. */
+export const STALE_LIMIT_HINT =
+  "The USDC/EURC limit order book is unaffected: /limit still works, since you set the price yourself.";
+
+/** Chat-length message with the rate's age filled in. */
+export function staleSwapMessage(ageSeconds: number): string {
+  return (
+    `FX oracle is stale (rate ${formatAge(ageSeconds)} old) — instant swaps are paused by design ` +
+    `until the next rate update. ${STALE_LIMIT_HINT}`
+  );
+}
+
+// --------------------------- stale-oracle policy ---------------------------
+
+/**
+ * Does this command need the AMM (and therefore a live FX rate)?
+ *
+ * Market swaps and TWAP do: both price through StableSwap, whose getRate()
+ * reverts once the rate is past STALENESS_WINDOW. TWAP is included precisely
+ * because its slices hit the AMM — offering it during a halt would fail slice
+ * by slice.
+ *
+ * /limit does NOT: OrderBook carries no oracle dependency and the user supplies
+ * the price, so a resting order is placed at a maker-set tick regardless of the
+ * rate. /cancel and /withdraw touch neither the curve nor a quote.
+ */
+export function requiresLiveRate(command: string): boolean {
+  return command === "buy" || command === "sell" || command === "twap" || command === "quote";
+}
+
+/** Commands that keep working through a halt — reads plus the book itself. */
+export function survivesStaleOracle(command: string): boolean {
+  return !requiresLiveRate(command);
+}
+
+/**
+ * Gate a command on oracle state. Returns null when the command may proceed,
+ * or the refusal text when it may not. The refusal always points at /limit,
+ * never at /twap.
+ */
+export function staleGate(command: string, oracle: Pick<OracleStatus, "stale" | "ageSeconds">): string | null {
+  if (!oracle.stale) return null;
+  if (survivesStaleOracle(command)) return null;
+  return staleSwapMessage(oracle.ageSeconds);
+}
+
 /** Human-readable refusal — never a number. Matches the app's existing wording. */
 export function refusalMessage(r: Exclude<QuoteResult, { ok: true }>): string {
   switch (r.reason) {
     case "stale-oracle":
-      return `FX oracle is stale (rate ${formatAge(r.oracle.ageSeconds)} old) — swaps are paused by design until the next rate update. No quote right now.`;
+      return `${staleSwapMessage(r.oracle.ageSeconds)} No quote right now.`;
     case "no-route":
       return "No route available right now — the curve may be paused on a stale rate. No quote.";
     case "bad-amount":
