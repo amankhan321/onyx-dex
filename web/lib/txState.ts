@@ -52,7 +52,11 @@ export function banner(s: TxState):
 
 /** Custom errors the contracts revert with, in language a trader can act on. */
 const REVERTS: [RegExp, string][] = [
-  [/0xec30f4ab|StaleRate/i, "FX rate is stale — swaps are paused until the next update."],
+  // StaleRate reaches here from a swap (StableSwap :110, :126) OR from
+  // addLiquidity (:200), so "swaps are paused" alone misreads an LP failure.
+  // removeLiquidity is proportional and oracle-free (:262), so withdrawals are
+  // unaffected, as are all order-book actions.
+  [/0xec30f4ab|StaleRate/i, "The FX rate feed is stale — AMM swaps and adding liquidity are paused until the next update. Order-book actions and LP withdrawals are unaffected."],
   [/WouldCross/i, "That price would cross the spread. Post-only orders must rest on the book."],
   [/TooSoon/i, "The rate was updated moments ago — try again shortly."],
   [/DeviationTooLarge/i, "That price move is larger than the oracle allows in one step."],

@@ -225,7 +225,7 @@ export function renderPrice(oracle: OracleStatus, book: BookStatus): string {
     lines.push("Book: no resting orders on one or both sides");
   }
   // The book has no oracle dependency, so say what still works.
-  if (oracle.stale) lines.push(STALE_LIMIT_HINT);
+  if (oracle.stale) lines.push(`The USDC/EURC limit order book is unaffected: ${STALE_ROUTE_CHAT}`);
   return lines.join("\n");
 }
 
@@ -243,28 +243,42 @@ export function renderQuote(q: SwapQuote): string {
 }
 
 /**
- * The ONE stale-oracle wording, shared by the chat bot, the Mini App
+ * The ONE stale-oracle reason, shared by the chat bot, the Mini App
  * (useSwapQuote) and the site (components/Swap). It lived as three separate
  * string literals that had to be edited in lockstep; a single constant is why
  * they can no longer drift.
  *
- * Why it names /limit: RateProvider.getRate() is called only by StableSwap
- * (:110, :126, :200), so a stale rate halts the AMM and LP actions. OrderBook
- * has no oracle dependency at all — prices are maker-set ticks — so the limit
- * book keeps working. TWAP is deliberately NOT offered as the fallback: its
+ * Why a route can still be offered: RateProvider.getRate() is called only by
+ * StableSwap — swap (:110, :126) and addLiquidity (:200). OrderBook has no
+ * oracle dependency at all (prices are maker-set ticks), so the limit book
+ * keeps working, and removeLiquidity is purely proportional (:262) so LPs can
+ * still withdraw. TWAP is deliberately never offered as the fallback: its
  * slices execute against the AMM and would fail one by one.
  */
 export const STALE_SWAP_SHORT = "FX oracle stale — instant swaps paused by design until the next rate update";
 
-/** The full guidance, for surfaces with room for a second line. */
-export const STALE_LIMIT_HINT =
-  "The USDC/EURC limit order book is unaffected: /limit still works, since you set the price yourself.";
+/**
+ * The ROUTE is per-surface, because "/limit" is only actionable where a chat
+ * prompt exists. The reason above stays identical everywhere; only the way out
+ * differs. Kept side by side here so the three remain reviewable together.
+ */
+
+/** Telegram chat: slash commands are typed directly. */
+export const STALE_ROUTE_CHAT = "/limit still works — you set the price yourself.";
+
+/** Public site: there is a Limit panel on the same page. No slash commands in a browser. */
+export const STALE_ROUTE_SITE =
+  "The order book is unaffected — use the Limit panel on this page to set your own price.";
+
+/** Mini App: no limit UI exists there; limit orders are placed from the bot chat. */
+export const STALE_ROUTE_MINIAPP =
+  "The order book is unaffected — place a limit order from the Onyx bot chat with /limit.";
 
 /** Chat-length message with the rate's age filled in. */
 export function staleSwapMessage(ageSeconds: number): string {
   return (
     `FX oracle is stale (rate ${formatAge(ageSeconds)} old) — instant swaps are paused by design ` +
-    `until the next rate update. ${STALE_LIMIT_HINT}`
+    `until the next rate update. The USDC/EURC limit order book is unaffected: ${STALE_ROUTE_CHAT}`
   );
 }
 

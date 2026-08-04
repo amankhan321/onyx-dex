@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { usePublicClient } from "wagmi";
 import { ADDR, arcTestnet, poolAbi, quoterAbi } from "./contracts";
 import { STALE_RATE_SELECTOR } from "./rateKeeper";
-import { STALE_LIMIT_HINT, STALE_SWAP_SHORT } from "./bot/quote";
+import { STALE_ROUTE_MINIAPP, STALE_SWAP_SHORT } from "./bot/quote";
 
 /**
  * Swap quoting, lifted out of the site's Swap component so the Mini App shows
@@ -70,7 +70,7 @@ export function useSwapQuote(zeroForOne: boolean, amountIn: bigint) {
             const m = e instanceof Error ? e.message : "quote failed";
             setError(
               m.includes(STALE_RATE_SELECTOR)
-                ? `${STALE_SWAP_SHORT}. ${STALE_LIMIT_HINT}`
+                ? `${STALE_SWAP_SHORT}. ${STALE_ROUTE_MINIAPP}`
                 : "Couldn't fetch a quote. Retrying…",
             );
           }

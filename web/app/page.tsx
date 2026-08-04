@@ -105,19 +105,21 @@ export default function Page() {
           <Rise>
             {pool?.rateStale && !poolError && (
               <p className="mx-auto mt-2 max-w-xl rounded-[12px] border border-yellow-500/30 bg-yellow-500/[0.06] p-3 text-[12px] leading-relaxed text-yellow-500/90">
-                FX rate is stale, so swaps are paused and the rate-derived figures below
-                are unavailable — that&apos;s the safety design, not an outage. Pool
-                reserves are live, the order book is unaffected, and LPs can still
-                withdraw. Trading resumes on the next rate update.
+                FX rate is stale, so instant swaps and adding liquidity are paused and
+                the rate-derived figures below are unavailable — that&apos;s the safety
+                design, not an outage. Pool reserves are live and LP withdrawals still
+                work. The order book is unaffected — use the Limit panel above to set
+                your own price. Trading resumes on the next rate update.
               </p>
             )}
             {poolError &&
               (poolError.message.includes("0xec30f4ab") ? (
                 <p className="mx-auto mt-2 max-w-xl rounded-[12px] border border-yellow-500/30 bg-yellow-500/[0.06] p-3 text-[12px] leading-relaxed text-yellow-500/90">
-                  FX oracle is stale, so swaps are paused — that&apos;s the
-                  safety design, not an outage. The order book stays live and
-                  LPs can always withdraw. Trading resumes on the next rate
-                  update.
+                  FX oracle is stale, so instant swaps and adding liquidity are
+                  paused — that&apos;s the safety design, not an outage. LP
+                  withdrawals still work, and the order book is unaffected: use
+                  the Limit panel above to set your own price. Trading resumes on
+                  the next rate update.
                 </p>
               ) : (
                 <p className="mx-auto mt-2 max-w-xl break-words rounded-[12px] border border-rose/30 bg-rose/[0.06] p-3 font-mono text-[11px] leading-relaxed text-rose">

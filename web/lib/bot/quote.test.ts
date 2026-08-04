@@ -13,7 +13,9 @@ import {
   requiresLiveRate,
   survivesStaleOracle,
   STALE_SWAP_SHORT,
-  STALE_LIMIT_HINT,
+  STALE_ROUTE_CHAT,
+  STALE_ROUTE_SITE,
+  STALE_ROUTE_MINIAPP,
   PAIR,
   type Reads,
   type OracleStatus,
@@ -259,12 +261,32 @@ test("a halted oracle and an empty book are visually distinct states", () => {
   assert.doesNotMatch(freshNoBook, /STALE/);
 });
 
-test("the stale wording is one shared constant, not a per-surface literal", () => {
-  // useSwapQuote.ts and components/Swap.tsx import these; the chat message
-  // builds on the same strings, so the three cannot drift.
-  assert.ok(STALE_SWAP_SHORT.length > 0);
-  assert.match(staleSwapMessage(25_000), new RegExp("instant swaps are paused by design"));
-  assert.ok(staleSwapMessage(25_000).includes(STALE_LIMIT_HINT));
+test("REQUIRED: every surface shares the reason, but the route is surface-appropriate", () => {
+  // One reason everywhere — that was the real drift risk.
+  for (const route of [STALE_ROUTE_CHAT, STALE_ROUTE_SITE, STALE_ROUTE_MINIAPP]) {
+    const composed = `${STALE_SWAP_SHORT}. ${route}`;
+    assert.ok(composed.includes(STALE_SWAP_SHORT), "reason must be identical on every surface");
+  }
+
+  // Chat is the only surface where typing a slash command is possible.
+  assert.match(STALE_ROUTE_CHAT, /\/limit/);
+
+  // A browser visitor has no chat prompt — the site must point at the panel,
+  // never tell them to type a slash command.
+  assert.doesNotMatch(STALE_ROUTE_SITE, /\/limit/);
+  assert.match(STALE_ROUTE_SITE, /Limit panel/i);
+
+  // The Mini App has no limit UI at all, so it must say where limit orders
+  // actually live rather than implying an in-app route.
+  assert.match(STALE_ROUTE_MINIAPP, /bot chat/i);
+  assert.match(STALE_ROUTE_MINIAPP, /order book is unaffected/i);
+});
+
+test("the chat message still carries the reason and the chat route", () => {
+  const msg = staleSwapMessage(25_000);
+  assert.match(msg, /instant swaps are paused by design/);
+  assert.ok(msg.includes(STALE_ROUTE_CHAT));
+  assert.doesNotMatch(msg, /\/twap/);
 });
 
 test("formatUnits6 renders 6-dp amounts with thousands separators", () => {
