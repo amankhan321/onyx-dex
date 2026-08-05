@@ -54,7 +54,11 @@ type TgWebApp = {
   };
   onEvent?: (event: string, cb: () => void) => void;
   offEvent?: (event: string, cb: () => void) => void;
-  initDataUnsafe?: { user?: { id: number; username?: string; first_name?: string } };
+  initDataUnsafe?: {
+    user?: { id: number; username?: string; first_name?: string };
+    /** Deep-link payload from t.me/<bot>/app?startapp=<id>. UNTRUSTED. */
+    start_param?: string;
+  };
   ready: () => void;
   expand: () => void;
   close: () => void;
@@ -589,6 +593,25 @@ export function telegramSession(): { inApp: boolean; platform: string; version: 
 
 /** Raw initData, for server-side HMAC verification. Never a substitute for auth. */
 export const initData = () => tg()?.initData ?? "";
+
+/**
+ * The deep-link payload, i.e. the opaque trade-intent id from
+ * t.me/<bot>/app?startapp=<id>.
+ *
+ * UNTRUSTED INPUT. It is an opaque lookup key and nothing else: it carries no
+ * amounts, no addresses and no prices, and the server binds it to the Telegram
+ * user who created it. Anything the app does with it must survive the id being
+ * forged, replayed, or belonging to someone else — which is why it is exchanged
+ * server-side for parameters, and why the device re-quotes before signing.
+ *
+ * Shape-checked here so a malformed value never reaches a network call. Ids are
+ * base64url from crypto.randomBytes(16).
+ */
+export function startParam(): string | null {
+  const raw = tg()?.initDataUnsafe?.start_param ?? null;
+  if (!raw) return null;
+  return /^[A-Za-z0-9_-]{16,64}$/.test(raw) ? raw : null;
+}
 
 /**
  * Usable height. Telegram's viewport shrinks when the keyboard opens;

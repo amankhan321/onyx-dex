@@ -8,13 +8,14 @@ import type { EncryptedKeystore } from "@/lib/keystore";
 import { unlock as unlockKeystore, type UnlockedWallet } from "@/lib/keystore";
 import { UnlockModal } from "./Unlock";
 import { SwapTab } from "./SwapTab";
+import { IntentConfirm } from "./IntentConfirm";
 import { SettingsTab } from "./SettingsTab";
 import { ActivityTab } from "./ActivityTab";
 import { PortfolioTab } from "./PortfolioTab";
 import { DepositTab } from "./DepositTab";
 import { usePublicClient } from "wagmi";
 import { ADDR, arcTestnet, bookAbi } from "@/lib/contracts";
-import { isInCloud, tiersAvailable, backupToCloud, initData, waitForTelegram } from "@/lib/telegram";
+import { isInCloud, tiersAvailable, backupToCloud, initData, waitForTelegram, startParam } from "@/lib/telegram";
 
 const FALLBACK_MAX_VALUE = Number(process.env.NEXT_PUBLIC_FALLBACK_MAX_VALUE ?? "100");
 /** Idle window for a session unlock — the hard cap regardless of activity. */
@@ -58,6 +59,15 @@ export function MiniApp({
 }) {
   const [keystore, setKeystore] = useState(initialKeystore);
   const [tab, setTab] = useState<Tab>("swap");
+  /**
+   * A chat-initiated trade arrives as an opaque id in start_param. When present
+   * the app opens straight onto the confirm screen — no navigation, no retyping.
+   * Captured once on mount so dismissing it cannot be undone by a re-render.
+   */
+  const [intentPending, setIntentPending] = useState(false);
+  useEffect(() => {
+    if (startParam()) setIntentPending(true);
+  }, []);
   const [height, setHeight] = useState<number>(0);
   const [copied, setCopied] = useState(false);
   const [offerBackup, setOfferBackup] = useState(false);
@@ -441,6 +451,16 @@ export function MiniApp({
               </button>
             </div>
           </div>
+        )}
+
+        {intentPending && (
+          <IntentConfirm
+            onDone={() => {
+              setIntentPending(false);
+              setTab("orders");
+            }}
+            onDismiss={() => setIntentPending(false)}
+          />
         )}
 
         <main className="flex-1 overflow-y-auto px-4 pb-24">
