@@ -455,6 +455,7 @@ export function MiniApp({
 
         {intentPending && (
           <IntentConfirm
+            sessionWarm={sessionActive}
             onDone={() => {
               setIntentPending(false);
               setTab("orders");

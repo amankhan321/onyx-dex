@@ -236,6 +236,24 @@ export async function handleCallback(cb: {
     await sendReferral(chat.id, cb.from.id);
     return;
   }
+  /**
+   * Size shortcuts (10 / 50 / 100) from a swap card.
+   *
+   * These cannot execute the trade: there is no server-side key, so the server
+   * physically cannot sign. What they DO is collapse the slow part — re-typing
+   * the command and waiting for a fresh quote — into one tap that yields a
+   * ready-to-sign link. With a warm session the next tap signs without a
+   * password, so a shortcut is two taps from card to broadcast.
+   */
+  if (cb.data?.startsWith("size:")) {
+    const [, command, size] = cb.data.split(":");
+    if ((command === "buy" || command === "sell") && /^\d+$/.test(size)) {
+      const parsed = parseCommand(`/${command} ${size}`);
+      if (parsed.kind === "sign") await handleSigning(chat.id, cb.from.id, parsed);
+    }
+    return;
+  }
+
   if (cb.data === "help") {
     await editMessage(
       chat.id,

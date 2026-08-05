@@ -37,9 +37,19 @@ type ConsumeState =
   | { status: "refused"; message: string; expired: boolean }
   | { status: "error"; message: string };
 
-export function IntentConfirm({ onDone, onDismiss }: { onDone: () => void; onDismiss: () => void }) {
+export function IntentConfirm({
+  sessionWarm = false,
+  onDone,
+  onDismiss,
+}: {
+  /** True when a wallet is already unlocked and inside its 5-minute window. */
+  sessionWarm?: boolean;
+  onDone: () => void;
+  onDismiss: () => void;
+}) {
   const [state, setState] = useState<ConsumeState>({ status: "idle" });
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
   const signer = useSigner();
   const { address } = useAccount();
@@ -87,6 +97,21 @@ export function IntentConfirm({ onDone, onDismiss }: { onDone: () => void; onDis
   // THE RE-QUOTE. Same hook the Swap tab uses, so chat and app cannot diverge,
   // and the figure shown is read from the chain here — never from the link.
   const { quote, error: quoteError } = useSwapQuote(zeroForOne, isSwap ? amountIn : 0n);
+
+  /**
+   * Will tapping Sign ask for a password?
+   *
+   * The rails are unchanged and deliberately restated here so the button can be
+   * honest about what it is about to do: withdrawals ALWAYS re-prompt, anything
+   * over REAUTH_THRESHOLD always re-prompts, and a cold or expired session
+   * always prompts. Speed comes only from skipping a redundant re-auth on a
+   * small trade while the session is already warm — never from skipping the
+   * quote, and never from softening the withdrawal gate.
+   */
+  const overThreshold = isSwap && Number(fmt(amountIn)) > REAUTH_THRESHOLD;
+  const alwaysReauth = payload?.command === "withdraw" || overThreshold;
+  const willPrompt = alwaysReauth || !sessionWarm;
+  const oneTap = !willPrompt;
 
   const tokenIn = zeroForOne ? (ADDR.usdc as `0x${string}`) : (ADDR.eurc as `0x${string}`);
   const { data: allowance } = useReadContract({
@@ -151,7 +176,13 @@ export function IntentConfirm({ onDone, onDismiss }: { onDone: () => void; onDis
           payload.command === "withdraw" || Number(fmt(amountIn)) > REAUTH_THRESHOLD,
       });
 
-      await signer.writeBatch(reqs);
+      await signer.writeBatch(reqs, (p) => {
+        // Brief in-flight state, so a one-tap trade still shows what it is doing.
+        if (p.phase === "unlocking") setPhase(willPrompt ? "Unlocking…" : "Signing…");
+        else if (p.phase === "sending") setPhase(p.label ? `${p.label}…` : "Sending…");
+        else if (p.phase === "sent") setPhase("Submitted — waiting for confirmation…");
+        else if (p.phase === "mined") setPhase("Confirmed");
+      });
       haptic.success();
       onDone();
     } catch (e) {
@@ -160,7 +191,7 @@ export function IntentConfirm({ onDone, onDismiss }: { onDone: () => void; onDis
     } finally {
       setBusy(false);
     }
-  }, [payload, address, client, quote, allowance, amountIn, tokenIn, zeroForOne, signer, onDone]);
+  }, [payload, address, client, quote, allowance, amountIn, tokenIn, zeroForOne, signer, onDone, willPrompt]);
 
   if (state.status === "idle") return null;
 
@@ -263,12 +294,19 @@ export function IntentConfirm({ onDone, onDismiss }: { onDone: () => void; onDis
                 disabled={busy || !quote || !isSwap || !signer.ready}
                 className="flex-1 rounded-[10px] bg-fg px-3 py-2 text-[13px] font-medium text-bg disabled:opacity-50"
               >
-                {busy ? "Signing…" : "Sign"}
+                {busy ? (phase ?? "Signing…") : oneTap ? "Confirm" : "Sign"}
               </button>
             </div>
 
             <p className="mt-3 text-[11px] leading-relaxed text-muted">
               Quoted fresh on this device just now. Your key never leaves it.
+              {alwaysReauth
+                ? payload.command === "withdraw"
+                  ? " Withdrawals always ask for your password."
+                  : ` Over ${REAUTH_THRESHOLD} tokens, so it asks for your password.`
+                : oneTap
+                  ? " One tap — your session is unlocked."
+                  : " You'll be asked to unlock once."}
             </p>
           </>
         )}
