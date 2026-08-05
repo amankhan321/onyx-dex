@@ -4,8 +4,20 @@ name: FX rate keeper
 # price off a dead feed. Nothing was refreshing it, which is why trading stopped
 # after 29 hours. This is that missing piece.
 #
-# Every 30 minutes against a 6-hour staleness window leaves a wide margin: a
-# dozen consecutive failures would have to go unnoticed before swaps halt.
+# The margin is thinner than the cron suggests. GitHub's scheduler is
+# best-effort: it queues scheduled workflows under load and does not honour the
+# requested cadence. Measured spacing between runs of THIS workflow has been
+# 78-169 minutes, not 30 — every run succeeded, so this is scheduling, not code.
+# It also disables scheduled workflows after 60 days without repo activity.
+#
+# So the real arithmetic, against a 6-hour (21,600s) staleness window: the
+# heartbeat fires at 1h (rateKeeper.ts HEARTBEAT_AFTER) and the worst observed
+# gap is 169 minutes, so 3,600 + 10,140 = 13,740s leaves 7,860s of margin. That
+# absorbs one further short gap, not the dozen missed runs an on-time 30-minute
+# cadence would give — two consecutive worst-case gaps would halt swaps.
+#
+# If the feed must not halt, move this off GitHub's scheduler to an external
+# pinger, the same caveat telegram-cron.yml carries for the notification sweep.
 on:
   schedule:
     - cron: "7,37 * * * *"
