@@ -71,3 +71,67 @@ forge script script/Deploy.s.sol:Deploy \
 
 `--skip-simulation` is required: Foundry simulates in a local EVM fork that has
 no knowledge of Arc's token contracts.
+
+## Telegram bot and Mini App
+
+Two manual steps that no amount of code can do for you, because both live in
+BotFather and neither is exposed over the Bot API.
+
+### 1. Register the Mini App (required for chat-initiated trades)
+
+A trade started in chat produces a deep link carrying an opaque intent id, which
+Telegram delivers to the app as `start_param`. That link only resolves if the
+Mini App is registered — otherwise the tap dead-ends with **"Bot application not
+found"**.
+
+Pick one of the two forms. `MINIAPP_SHORT_NAME` selects which link the bot
+builds (see `web/lib/bot/cards.ts` → `deepLink`).
+
+**Named app** — the default, `MINIAPP_SHORT_NAME=app`:
+
+1. BotFather → `/myapps` → **Create New App**, select `@OnyxArcBot`
+2. Short name: **`app`** — must match `MINIAPP_SHORT_NAME` exactly
+3. Web App URL: `https://onyx-dex.vercel.app/miniapp`
+4. Supply the title, description and icon it asks for
+
+Produces `t.me/OnyxArcBot/app?startapp=<id>`.
+
+**Main Mini App** — set `MINIAPP_SHORT_NAME=` (empty):
+
+1. BotFather → `/mybots` → `@OnyxArcBot` → **Bot Settings → Configure Mini App**
+2. Set the Mini App URL to `https://onyx-dex.vercel.app/miniapp`
+
+Produces `t.me/OnyxArcBot?startapp=<id>`. No short name exists to misspell, so
+this is the more forgiving option.
+
+Either way the id is base64url, which satisfies Telegram's `startapp` charset
+(`A-Z a-z 0-9 _ -`) and its 512-character limit.
+
+### 2. Register the webhook and the command menu
+
+Run the **"Register Telegram webhook"** Action (`workflow_dispatch`). It POSTs
+`/api/telegram/setup` with the admin secret, which calls `ensureSchema()`,
+`setWebhook()` and `setMyCommands()` server-side — so the bot token never leaves
+Vercel's environment. Re-run it whenever the deployment URL changes.
+
+After it runs, the `/` menu appears in Telegram and the `trade_intents` table
+exists, which is what `/buy` needs.
+
+### Environment variables
+
+Set on Vercel (not compiled in, unlike the contract addresses):
+
+| Variable | Purpose |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Bot API calls. Never sent to a browser. |
+| `TELEGRAM_WEBHOOK_SECRET` | Stamped on inbound webhooks by Telegram, checked on arrival. |
+| `TELEGRAM_ADMIN_SECRET` | Guards `/api/telegram/setup`. Also a GitHub repo secret. |
+| `TELEGRAM_ADMIN_CHAT_ID` | Where keeper alerts go. **Unset means a stale feed alerts nobody.** |
+| `DATABASE_URL` | Neon Postgres. |
+| `PUBLIC_BASE_URL` | Builds the webhook URL. Must be the production URL. |
+| `MINIAPP_SHORT_NAME` | Deep-link form. `app` for a named app, empty for Main Mini App. |
+| `MINIAPP_URL` | Where the bot's own buttons open. Defaults to the Vercel URL. |
+
+There is no signing key here, and none may be added. The server reads chain
+state and stores intents; it cannot sign, and every write is signed on the
+user's device.

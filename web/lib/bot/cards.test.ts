@@ -14,6 +14,7 @@ import {
   START_MODES,
 } from "./cards";
 import { parseCommand, type TradePayload } from "./commands";
+import { newIntentId } from "./intents";
 import { PAIR, formatUnits6, type SwapQuote } from "./quote";
 
 const OUT = 88_234_500n; // 88.2345 — verbatim from the Quoter, fees already inside
@@ -144,9 +145,30 @@ test("only market swaps need a quote before the card", () => {
 });
 
 test("the deep link carries only the opaque id — no amounts, no addresses", () => {
-  const link = deepLink("OnyxArcBot", "AbC123_-xyz");
+  const link = deepLink("OnyxArcBot", "AbC123_-xyz", "app");
   assert.equal(link, "https://t.me/OnyxArcBot/app?startapp=AbC123_-xyz");
   assert.doesNotMatch(link, /100|0x|amount|usdc/i);
+});
+
+test("both BotFather link forms are supported, since each needs a different setup", () => {
+  // Named app: requires a Mini App registered under that exact short name.
+  assert.equal(
+    deepLink("OnyxArcBot", "abc", "app"),
+    "https://t.me/OnyxArcBot/app?startapp=abc",
+  );
+  // Main Mini App: no short name, so nothing to misspell. Empty selects it.
+  assert.equal(deepLink("OnyxArcBot", "abc", ""), "https://t.me/OnyxArcBot?startapp=abc");
+});
+
+test("intent ids satisfy Telegram's startapp charset and length limit", () => {
+  // Telegram allows only A-Z a-z 0-9 _ - in startapp, up to 512 chars. A link
+  // built from an id outside that set would silently fail to deliver a
+  // start_param, so the id generator and this link must agree.
+  for (let i = 0; i < 20; i++) {
+    const id = newIntentId();
+    assert.match(id, /^[A-Za-z0-9_-]+$/);
+    assert.ok(id.length <= 512);
+  }
 });
 
 test("REQUIRED: the stale refusal names /limit and never offers /twap", () => {

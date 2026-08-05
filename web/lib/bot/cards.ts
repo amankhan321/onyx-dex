@@ -145,9 +145,37 @@ export function shortcutsFor(command: SignCommand): number[] {
   return command === "buy" || command === "sell" ? [...SHORTCUT_SIZES] : [];
 }
 
-/** Deep link into the Mini App carrying ONLY the opaque intent id. */
-export function deepLink(botUsername: string, intentId: string): string {
-  return `https://t.me/${botUsername}/app?startapp=${intentId}`;
+/**
+ * Deep link into the Mini App carrying ONLY the opaque intent id.
+ *
+ * Telegram has two link forms that deliver a startapp value into start_param,
+ * and BOTH require one manual BotFather step. Which one is used depends on
+ * MINIAPP_SHORT_NAME, so the code follows whatever the owner registered rather
+ * than hard-coding an assumption:
+ *
+ *   named app   t.me/<bot>/<shortName>?startapp=<id>
+ *               Requires a Mini App registered in BotFather (/myapps → New App)
+ *               with that exact short name and the /miniapp URL. If the short
+ *               name is absent or misspelled the tap dead-ends with
+ *               "Bot application not found" — which is precisely what happened.
+ *
+ *   main app    t.me/<bot>?startapp=<id>
+ *               Requires BotFather → /mybots → Bot Settings → Configure Mini App
+ *               → set the Main Mini App URL. No short name exists to get wrong,
+ *               so this is the more forgiving option.
+ *
+ * Set MINIAPP_SHORT_NAME to the registered short name to use the first form;
+ * leave it empty to use the Main Mini App. Default is "app" because that is
+ * what the owner is registering.
+ *
+ * The id is base64url, which satisfies Telegram's startapp charset (A-Z a-z 0-9
+ * _ -) and its 512-character limit with room to spare.
+ */
+export function deepLink(botUsername: string, intentId: string, shortName?: string): string {
+  const name = shortName ?? process.env.MINIAPP_SHORT_NAME ?? "app";
+  return name
+    ? `https://t.me/${botUsername}/${name}?startapp=${intentId}`
+    : `https://t.me/${botUsername}?startapp=${intentId}`;
 }
 
 /** The stale-oracle refusal for chat. Points at /limit, never /twap. */
