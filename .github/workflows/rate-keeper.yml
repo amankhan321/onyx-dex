@@ -12,11 +12,19 @@ name: FX rate keeper
 #
 # So the real arithmetic, against a 6-hour (21,600s) staleness window: the
 # heartbeat fires at 1h (rateKeeper.ts HEARTBEAT_AFTER) and the worst observed
-# gap is 169 minutes, so 3,600 + 10,140 = 13,740s leaves 7,860s of margin. That
+# gap was 169 minutes, so 3,600 + 10,140 = 13,740s leaves 7,860s of margin. That
 # absorbs one further short gap, not the dozen missed runs an on-time 30-minute
-# cadence would give — two consecutive worst-case gaps would halt swaps.
+# cadence would give — two consecutive worst-case gaps would halt swaps. A live
+# gap has since exceeded 169 minutes, so treat that worst case as a floor, not a
+# bound; the figures here are updated once a stalled gap resolves and its true
+# length is known.
 #
-# If the feed must not halt, move this off GitHub's scheduler to an external
+# WHAT THE 1h HEARTBEAT DOES NOT DO: it cannot make GitHub schedule anything. It
+# guarantees only that a run which FIRES will refresh the timestamp instead of
+# skipping. Runs that never fire are untouched by it, and that is the failure
+# mode actually seen here — successful runs, simply too far apart.
+#
+# So if the feed must not halt, move this off GitHub's scheduler to an external
 # pinger, the same caveat telegram-cron.yml carries for the notification sweep.
 on:
   schedule:

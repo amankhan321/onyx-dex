@@ -40,6 +40,11 @@ export const SAFE_STEP_BPS = 90n;
  * margin — up from 4,260s at the 2h threshold. That absorbs one further short
  * gap but not a second, so this narrows the exposure rather than removing it.
  * MIN_UPDATE_INTERVAL is 300s, so the contract permits pushes far more often.
+ *
+ * What this does NOT do: it cannot make GitHub schedule anything. It only
+ * guarantees a run which fires refreshes the timestamp rather than skipping.
+ * Runs that never fire are unaffected — and a live gap has already exceeded
+ * 169m, so treat that worst case as a floor rather than a bound.
  */
 export const HEARTBEAT_AFTER = 3_600; // 1h — every scheduled run that fires refreshes
 

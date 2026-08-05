@@ -15,6 +15,15 @@ import {
  *
  * Observed spacing between scheduled runs, from the Actions history:
  * 78, 85, 103, 110, 115, 144, 146, 169 minutes.
+ *
+ * PROVISIONAL. A live gap has since passed 169 minutes without resolving, so
+ * LONGEST_GAP understates the real worst case. These numbers are deliberately
+ * NOT updated mid-gap — the true length is unknown until the next run fires.
+ * When it does, update this array, the HEARTBEAT_AFTER comment in rateKeeper.ts
+ * and the rate-keeper.yml header together, in one commit.
+ *
+ * Nothing below asserts an exact margin figure, for the same reason: only
+ * relations that hold whatever the dataset turns out to be.
  */
 const OBSERVED_GAPS_SECONDS = [78, 85, 103, 110, 115, 144, 146, 169].map((m) => m * 60);
 const SHORTEST_GAP = Math.min(...OBSERVED_GAPS_SECONDS); // 4,680s
@@ -70,14 +79,24 @@ test("INVARIANT: heartbeat + worst observed gap stays inside the staleness windo
     `worst case ${worstCase}s must stay under STALENESS_WINDOW ${STALENESS_WINDOW}s`,
   );
 
-  // The honest margin: 3,600 + 10,140 = 13,740s used, leaving 7,860s (2h11m).
-  // That absorbs one further SHORT gap (78m) but not two, and not one further
-  // worst-case gap (169m). 1h is a large improvement on the 2h threshold, which
-  // left only 4,260s — it is not immunity. Only a scheduler that actually fires
-  // on time, or an external pinger, removes the dependency.
+  // Margin as of the dataset above: 3,600 + 10,140 = 13,740s used, leaving
+  // 7,860s (2h11m). That absorbs one further SHORT gap (78m) but not two, and
+  // not another worst-case gap (169m). 1h is a large improvement on the 2h
+  // threshold, which left only 4,260s — it is not immunity.
+  //
+  // The exact figure stays in this comment, deliberately not in an assertion:
+  // asserting it would be an arithmetic identity of two constants, so it would
+  // fail the moment OBSERVED_GAPS_SECONDS is updated — for the wrong reason,
+  // reporting a stale dataset as a broken invariant. The relations below are
+  // what actually matter and they hold across any dataset.
   const margin = STALENESS_WINDOW - worstCase;
-  assert.equal(margin, 7_860);
-  assert.ok(margin > SHORTEST_GAP, "must absorb at least one further short gap");
+  assert.ok(margin > 0, "a heartbeat at the worst observed gap must not already be past the halt");
+  assert.ok(
+    margin > SHORTEST_GAP,
+    `margin ${margin}s has fallen below the shortest observed gap ${SHORTEST_GAP}s — the schedule ` +
+      `has degraded far enough that HEARTBEAT_AFTER alone no longer covers it. This is a real ` +
+      `breach, not a stale dataset: reduce HEARTBEAT_AFTER or move off GitHub's scheduler.`,
+  );
   assert.ok(margin < LONGEST_GAP, "does NOT absorb a further worst-case gap — documented, not fixed");
 });
 
