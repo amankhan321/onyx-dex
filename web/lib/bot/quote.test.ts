@@ -16,6 +16,8 @@ import {
   BOOK_UNAFFECTED,
   STALE_ROUTE_CHAT,
   STALE_ROUTE_SITE,
+  STALE_ROUTE_SITE_ACTION,
+  STALE_ROUTE_SITE_STATEMENT,
   STALE_ROUTE_MINIAPP,
   PAIR,
   type Reads,
@@ -279,6 +281,13 @@ test("REQUIRED: every surface shares the reason, but the route is surface-approp
   assert.doesNotMatch(STALE_ROUTE_SITE, /\/limit/);
   assert.match(STALE_ROUTE_SITE, /Make tab/, "site route must name the Make tab");
   assert.doesNotMatch(STALE_ROUTE_SITE, /on this page|above/i, "must not imply the panel is visible");
+
+  // The site renders the action as a button, so its accessible name must be the
+  // action alone — not a sentence opening with a statement of fact.
+  assert.equal(STALE_ROUTE_SITE_ACTION, "Open the Make tab");
+  assert.doesNotMatch(STALE_ROUTE_SITE_ACTION, /unaffected|order book/i, "button label is the action only");
+  assert.match(STALE_ROUTE_SITE_STATEMENT, /order book is unaffected/i);
+  assert.ok(STALE_ROUTE_SITE.startsWith(STALE_ROUTE_SITE_STATEMENT), "full sentence composes from the two");
 
   // The Mini App has no limit UI and no Make tab, so it must send the user to
   // the bot chat and must NOT name a tab that doesn't exist there.

@@ -275,9 +275,18 @@ export const STALE_ROUTE_CHAT = "/limit still works — you set the price yourse
  * :96) and Swap renders on its own tab (:95), so the two are never on screen
  * together. Naming the tab is the whole point — "on this page" would point at
  * something the reader cannot see. No slash commands in a browser.
+ *
+ * Split in two because the site renders the action as a BUTTON: a button's
+ * accessible name must be the action alone, or a screen reader announces the
+ * whole sentence as the control's name. The statement belongs in paragraph
+ * text, the action on the button. Chat and Mini App have no control to press,
+ * so they keep composing the full sentence.
  */
-export const STALE_ROUTE_SITE =
-  "The order book is unaffected — open the Make tab to place a limit order at your own price.";
+export const STALE_ROUTE_SITE_STATEMENT = "The order book is unaffected.";
+export const STALE_ROUTE_SITE_ACTION = "Open the Make tab";
+
+/** Full sentence, for any site surface without a control to press. */
+export const STALE_ROUTE_SITE = `${STALE_ROUTE_SITE_STATEMENT} ${STALE_ROUTE_SITE_ACTION} to place a limit order at your own price.`;
 
 /**
  * Mini App: no limit UI exists there at all (LimitPanel is imported only by

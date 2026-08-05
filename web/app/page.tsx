@@ -20,7 +20,7 @@ import { CountUp } from "@/components/CountUp";
 import { Float } from "@/components/Reveal";
 import { usePool } from "@/lib/useBook";
 import { fmt } from "@/lib/contracts";
-import { STALE_ROUTE_SITE } from "@/lib/bot/quote";
+import { STALE_ROUTE_SITE_ACTION, STALE_ROUTE_SITE_STATEMENT } from "@/lib/bot/quote";
 import { STALE_RATE_SELECTOR } from "@/lib/rateKeeper";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -36,22 +36,23 @@ type Tab = (typeof TABS)[number];
  * they are on the Swap tab points at something not on screen. One tap switches
  * to Make and scrolls the terminal into view, matching BookLadder's onMake.
  *
- * The wording itself is STALE_ROUTE_SITE from lib/bot/quote — no stale copy is
- * a literal on any surface.
+ * The wording comes from lib/bot/quote — no stale copy is a literal on any
+ * surface. Statement and action are separate constants so the button's
+ * accessible name is the action alone, not a whole sentence read aloud.
  */
 function StalePanel({ onMake, detail }: { onMake: () => void; detail: string }) {
   return (
     <div className="mx-auto mt-2 max-w-xl rounded-[12px] border border-yellow-500/30 bg-yellow-500/[0.06] p-3 text-[12px] leading-relaxed text-yellow-500/90">
       <p>
-        FX rate is stale, so instant swaps and adding liquidity are paused. {detail} Trading
-        resumes on the next rate update.
+        FX rate is stale, so instant swaps and adding liquidity are paused. {detail}{" "}
+        {STALE_ROUTE_SITE_STATEMENT} Trading resumes on the next rate update.
       </p>
       <button
         type="button"
         onClick={onMake}
         className="mt-2 rounded-[8px] border border-yellow-500/40 px-2.5 py-1.5 text-left text-[12px] font-medium text-yellow-500 transition hover:bg-yellow-500/10"
       >
-        {STALE_ROUTE_SITE}
+        {STALE_ROUTE_SITE_ACTION}
       </button>
     </div>
   );
