@@ -25,8 +25,23 @@ export const MAX_DEVIATION_BPS = 100n;
  */
 export const SAFE_STEP_BPS = 90n;
 
-/** Push a heartbeat once the rate is this old, even with nothing to correct. */
-export const HEARTBEAT_AFTER = 7_200; // 2h — a third of the staleness window
+/**
+ * Push a heartbeat once the rate is this old, even with nothing to correct.
+ *
+ * 1h, not 2h, because the schedule is best-effort. GitHub's cron does not fire
+ * every 30 minutes as rate-keeper.yml asks: observed spacing between runs has
+ * been 78-169 minutes. At a 2h threshold roughly half the runs that DID fire
+ * landed inside the skip window and refreshed nothing, so the timestamp kept
+ * ageing while the workflow reported success.
+ *
+ * At 1h every run that fires pushes, since the shortest observed gap (78m)
+ * already exceeds it. Worst case then becomes 3,600 + 10,140 (longest observed
+ * gap) = 13,740s against STALENESS_WINDOW 21,600, leaving 7,860s (2h11m) of
+ * margin — up from 4,260s at the 2h threshold. That absorbs one further short
+ * gap but not a second, so this narrows the exposure rather than removing it.
+ * MIN_UPDATE_INTERVAL is 300s, so the contract permits pushes far more often.
+ */
+export const HEARTBEAT_AFTER = 3_600; // 1h — every scheduled run that fires refreshes
 
 /** Warn the operator here, well before swaps actually stop. */
 export const ALERT_AFTER = 14_400; // 4h

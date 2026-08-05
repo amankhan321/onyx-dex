@@ -9,7 +9,7 @@
     "lint": "next lint",
     "keeper": "tsx scripts/push-rate.ts",
     "check-rpc": "node scripts/check-rpc-refs.mjs",
-    "test": "tsx --test lib/bot/*.test.ts"
+    "test": "tsx --test lib/*.test.ts lib/bot/*.test.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
