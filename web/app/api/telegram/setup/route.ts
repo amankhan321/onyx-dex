@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { setWebhook } from "@/lib/bot/telegram";
+import { setMyCommands, setWebhook } from "@/lib/bot/telegram";
 import { ensureSchema } from "@/lib/bot/db";
+import { BOT_COMMANDS } from "@/lib/bot/cards";
 
 /**
  * One-time webhook registration.
@@ -37,6 +38,8 @@ export async function POST(req: Request) {
   try {
     await ensureSchema();
     await setWebhook(`${base}/api/telegram/webhook`, webhookSecret);
+    // Autocomplete in the Telegram client; descriptions mark which need a tap.
+    await setMyCommands(BOT_COMMANDS);
     // Echo the URL but never the token or the secrets.
     return NextResponse.json({ ok: true, webhook: `${base}/api/telegram/webhook` });
   } catch (e) {

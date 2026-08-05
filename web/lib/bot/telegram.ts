@@ -80,3 +80,11 @@ export const setWebhook = (url: string, secretToken: string) =>
   });
 
 export const deleteWebhook = () => call("deleteWebhook", { drop_pending_updates: false });
+
+/**
+ * Register the command list so Telegram autocompletes it. Descriptions say
+ * plainly which commands need a tap to sign on the device, so the two modes are
+ * distinguishable before anyone types anything.
+ */
+export const setMyCommands = (commands: { command: string; description: string }[]) =>
+  call("setMyCommands", { commands });

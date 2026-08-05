@@ -206,3 +206,28 @@ export function unknownMessage(input: string, suggestion?: string): string {
 }
 
 export { formatUnits6, STALE_ROUTE_CHAT };
+
+/**
+ * The command list registered with Telegram so it autocompletes. Descriptions
+ * mark which commands need a tap to sign, so the two modes are visible before
+ * anyone types. Kept here, beside the help text, so they cannot drift.
+ */
+export const BOT_COMMANDS: { command: string; description: string }[] = [
+  { command: "price", description: "Rate, book mid and spread — USDC/EURC" },
+  { command: "quote", description: "Preview a swap, e.g. /quote 100 usdc eurc" },
+  { command: "balance", description: "Your USDC, EURC and gas" },
+  { command: "portfolio", description: "Positions and LP value" },
+  { command: "orders", description: "Your resting limit orders and TWAPs" },
+  { command: "activity", description: "Recent transactions" },
+  { command: "alert", description: "Price alert, e.g. /alert 0.93" },
+  { command: "alerts", description: "List your price alerts" },
+  { command: "settings", description: "Preferences, e.g. /settings slippage 0.5" },
+  { command: "address", description: "Your wallet address" },
+  { command: "buy", description: "Spend USDC for EURC — sign on device" },
+  { command: "sell", description: "Sell EURC for USDC — sign on device" },
+  { command: "limit", description: "Resting order, e.g. /limit buy 100 @ 0.95 — sign on device" },
+  { command: "twap", description: "Spread a trade over time — sign on device" },
+  { command: "cancel", description: "Cancel a resting order — sign on device" },
+  { command: "withdraw", description: "Withdraw — always asks for your password" },
+  { command: "help", description: "All commands, grouped" },
+];

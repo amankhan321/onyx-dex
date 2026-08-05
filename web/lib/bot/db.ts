@@ -15,6 +15,7 @@
  * them. Keys live only on the user's device — the server cannot sign.
  */
 import { neon } from "@neondatabase/serverless";
+import type { IntentStore, StoredIntent } from "./intents";
 
 /**
  * Lazily constructed.
@@ -73,6 +74,27 @@ export async function ensureSchema() {
       triggered_at BIGINT
     )`;
   await db()`CREATE INDEX IF NOT EXISTS idx_alerts_active ON price_alerts(triggered_at)`;
+  // Trade intents: the chat-to-device handoff. Holds trade PARAMETERS only —
+  // never a built transaction, never anything the server could sign or replay.
+  // consumed_at is set atomically so an intent is single-use under concurrency.
+  await db()`
+    CREATE TABLE IF NOT EXISTS trade_intents (
+      id           TEXT PRIMARY KEY,
+      telegram_id  BIGINT NOT NULL,
+      payload      JSONB NOT NULL,
+      created_at   BIGINT NOT NULL,
+      expires_at   BIGINT NOT NULL,
+      consumed_at  BIGINT
+    )`;
+  await db()`CREATE INDEX IF NOT EXISTS idx_intents_expiry ON trade_intents(expires_at)`;
+}
+
+/** This user's open orders, for /orders and for refusing an unmatched /cancel. */
+export async function openOrdersFor(telegramId: number): Promise<TrackedOrder[]> {
+  return (await db()`
+    SELECT * FROM tracked_orders
+    WHERE telegram_id = ${telegramId} AND status = 'open'
+    ORDER BY created_at DESC LIMIT 50`) as TrackedOrder[];
 }
 
 export async function upsertUser(telegramId: number, username?: string, referredBy?: number) {
@@ -140,4 +162,54 @@ export async function notificationsOn(telegramId: number): Promise<boolean> {
     notifications: boolean;
   }[];
   return rows[0]?.notifications ?? true;
+}
+
+/**
+ * Neon-backed IntentStore (see lib/bot/intents.ts for the policy and its tests).
+ *
+ * markConsumed does the whole check-and-set in ONE statement:
+ *   UPDATE ... WHERE id = $1 AND consumed_at IS NULL RETURNING id
+ * so two concurrent taps cannot both win. Doing it as SELECT-then-UPDATE would
+ * let a replay slip through between the two, which is the single most important
+ * property of the intent system.
+ */
+export const intentStore: IntentStore = {
+  async put(i) {
+    await db()`
+      INSERT INTO trade_intents (id, telegram_id, payload, created_at, expires_at, consumed_at)
+      VALUES (${i.id}, ${i.telegramId}, ${JSON.stringify(i.payload)}, ${i.createdAt}, ${i.expiresAt}, NULL)`;
+  },
+  async get(id) {
+    const rows = (await db()`
+      SELECT * FROM trade_intents WHERE id = ${id}`) as {
+      id: string;
+      telegram_id: string | number;
+      payload: unknown;
+      created_at: string | number;
+      expires_at: string | number;
+      consumed_at: string | number | null;
+    }[];
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      id: r.id,
+      telegramId: Number(r.telegram_id),
+      payload: (typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload) as StoredIntent["payload"],
+      createdAt: Number(r.created_at),
+      expiresAt: Number(r.expires_at),
+      consumedAt: r.consumed_at === null ? null : Number(r.consumed_at),
+    };
+  },
+  async markConsumed(id, at) {
+    const rows = (await db()`
+      UPDATE trade_intents SET consumed_at = ${at}
+      WHERE id = ${id} AND consumed_at IS NULL
+      RETURNING id`) as { id: string }[];
+    return rows.length === 1;
+  },
+};
+
+/** Housekeeping: expired intents carry no secrets but need not accumulate. */
+export async function pruneIntents(now: number) {
+  await db()`DELETE FROM trade_intents WHERE expires_at < ${now - 86_400_000}`;
 }
