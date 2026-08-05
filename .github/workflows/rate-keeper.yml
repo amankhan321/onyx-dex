@@ -8,7 +8,7 @@ name: FX rate keeper
 # dozen consecutive failures would have to go unnoticed before swaps halt.
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "7,37 * * * *"
   workflow_dispatch:
 
 concurrency:
