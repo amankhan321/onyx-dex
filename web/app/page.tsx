@@ -14,7 +14,6 @@ import { LiquidityPanel } from "@/components/LiquidityPanel";
 import { BridgePanel } from "@/components/BridgePanel";
 import { TxHistory } from "@/components/TxHistory";
 import { Rise, SlideIn, Stagger } from "@/components/Reveal";
-import { BotDock } from "@/components/BotDock";
 import { PanelBoundary } from "@/components/PanelBoundary";
 import { CountUp } from "@/components/CountUp";
 import { Float } from "@/components/Reveal";
@@ -241,7 +240,6 @@ export default function Page() {
             </div>
           </Rise>
         </Stagger>
-        <BotDock />
     </main>
     </>
   );

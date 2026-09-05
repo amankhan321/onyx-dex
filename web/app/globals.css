@@ -170,24 +170,6 @@ body::before {
   70%, 100% { transform: scale(2.2); opacity: 0; }
 }
 
-/* ---------- ambient ---------- */
-
-.blob {
-  position: absolute;
-  border-radius: 9999px;
-  pointer-events: none;
-}
-@keyframes float-a {
-  0%, 100% { transform: translate(0, 0); }
-  33% { transform: translate(30px, -22px); }
-  66% { transform: translate(-18px, 26px); }
-}
-@keyframes float-b {
-  0%, 100% { transform: translate(0, 0); }
-  33% { transform: translate(-28px, 24px); }
-  66% { transform: translate(22px, -30px); }
-}
-
 /* ---------- data ---------- */
 
 .tabular {
