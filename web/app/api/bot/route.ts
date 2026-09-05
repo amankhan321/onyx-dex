@@ -4,8 +4,8 @@ import { NextResponse } from "next/server";
  * OWNER / TESTING ONLY — status for the Mode 2 server bot (keeper/bot.mjs).
  *
  * Gated behind BOT_SECRET. This is NOT part of the public product: nothing in
- * the user-facing UI calls it, and the public bot (components/BotPanel.tsx)
- * runs client-side against the user's own wallet and needs no server at all.
+ * the user-facing UI calls it. The in-page client-side bot panel was removed
+ * from the site; the Mode 2 worker in keeper/ is the only bot that remains.
  *
  * Deliberately READ-ONLY. Start/stop belongs to the process manager (pm2,
  * docker compose, systemd) that owns the worker — exposing lifecycle control
