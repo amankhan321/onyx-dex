@@ -56,7 +56,7 @@ export function useActivity(address?: `0x${string}`) {
         const receipt = await client.getTransactionReceipt({ hash: e.hash as `0x${string}` });
         updateActivity(address, e.hash, {
           status: receipt.status === "success" ? "confirmed" : "failed",
-          error: receipt.status === "success" ? undefined : "Reverted on-chain",
+          error: receipt.status === "success" ? undefined : "Reverted onchain",
           resolvedAt: Date.now(),
         });
         changed = true;

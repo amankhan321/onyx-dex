@@ -199,19 +199,19 @@ export default function Page() {
   
               <Rise>
                 <h1 ref={heroRef} className="mx-auto mt-5 font-display text-[46px] font-normal leading-[1.02] tracking-[-0.01em] text-fg sm:text-[62px]">
-                  <span className="hero-line-a">The order book</span>
+                  <span className="hero-line-a">The order book,</span>
                   <br />
-                  <span className="hero-line-b shimmer italic">Arc made possible.</span>
+                  <span className="hero-line-b shimmer italic">made practical on Arc.</span>
                 </h1>
               </Rise>
   
               <Rise>
                 <p className="mx-auto mt-5 max-w-md text-sm leading-relaxed text-muted">
-                  Every other DEX here is a curve. A real limit order book only
-                  works when finality is sub-second and gas costs a cent — true on
-                  exactly one chain. Orders sweep the book first, then fall
-                  through to a rate-adjusted StableSwap for whatever it
-                  can&apos;t absorb.
+                  An onchain limit order book for stablecoin FX. Makers quote and
+                  cancel continuously, which becomes economical with sub-second
+                  finality and ~$0.01 gas. Each order sweeps the resting book
+                  first, then settles the remainder through a rate-adjusted
+                  StableSwap in the same transaction.
                 </p>
               </Rise>
   

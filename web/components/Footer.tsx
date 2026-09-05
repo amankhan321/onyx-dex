@@ -13,7 +13,7 @@ export function Footer() {
             <span className="text-sm font-medium text-fg">Onyx</span>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-faint">
-            Onyx — an on-chain order book. Hybrid CLOB + rate-adjusted
+            Onyx — an onchain order book. Hybrid CLOB + rate-adjusted
             StableSwap for stablecoin FX. Built on Arc.
           </p>
         </div>

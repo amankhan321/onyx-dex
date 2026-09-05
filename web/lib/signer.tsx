@@ -191,7 +191,7 @@ export function useKeystoreSigner(opts: {
           if (r.awaitReceipt && publicClient) {
             const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 });
             if (receipt.status !== "success") {
-              throw new Error(`${r.label ?? "Transaction"} reverted on-chain`);
+              throw new Error(`${r.label ?? "Transaction"} reverted onchain`);
             }
             onProgress?.({ phase: "mined", index: i, hash, label: r.label });
           }

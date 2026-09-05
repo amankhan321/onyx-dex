@@ -147,6 +147,6 @@ export function stepForError(err: unknown): SwapStep["id"] {
   const s = String((err as Error)?.message ?? err).toLowerCase();
   // Only a revert of the swap itself belongs to "confirming" — everything
   // before the transaction lands, including a failed approval, is submission.
-  if (/reverted on-chain|slippage|wouldcross|stalerate|expired/.test(s)) return "confirm";
+  if (/reverted on-?chain|slippage|wouldcross|stalerate|expired/.test(s)) return "confirm";
   return "submit";
 }

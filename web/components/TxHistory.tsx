@@ -138,7 +138,7 @@ export function TxHistory() {
       {loading && rows.length === 0 ? (
         <p className="mt-2 font-mono text-[11px] text-faint">loading…</p>
       ) : rows.length === 0 ? (
-        <p className="mt-2 font-mono text-[11px] text-faint">no on-chain activity yet</p>
+        <p className="mt-2 font-mono text-[11px] text-faint">no onchain activity yet</p>
       ) : (
         <div className="mt-2 space-y-1.5">
           {rows.map((r) => (

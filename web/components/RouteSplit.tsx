@@ -18,7 +18,7 @@ const EASE = [0.16, 1, 0.3, 1] as const;
  * The whole thesis in one component: an order arriving and splitting itself
  * across two venues that price differently.
  *
- * Every other DEX on Arc can only draw the right-hand bar.
+ * The right-hand bar is what a curve-only route would fill on its own.
  */
 export function RouteSplit({
   quote,
@@ -54,7 +54,7 @@ export function RouteSplit({
             transition={{ duration: 0.35, ease: EASE }}
             className="font-mono text-[11px] font-medium tabular text-mint"
           >
-            +{edge.toFixed(2)}% vs AMM alone
+            +{edge.toFixed(2)}% vs curve-only, this quote
           </motion.span>
         )}
       </div>
