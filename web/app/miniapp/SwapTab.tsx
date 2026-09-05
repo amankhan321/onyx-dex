@@ -227,8 +227,8 @@ export function SwapTab({ fallbackCap }: { fallbackCap: number | null }) {
         setTx({ status: "confirmed", hash });
       } else {
         haptic.error();
-        push(setStep(live, "confirm", { state: "failed", detail: "Reverted on-chain", hash }));
-        setTx({ status: "failed", message: "The swap reverted on-chain.", hash });
+        push(setStep(live, "confirm", { state: "failed", detail: "Reverted onchain", hash }));
+        setTx({ status: "failed", message: "The swap reverted onchain.", hash });
       }
     } catch (e) {
       haptic.error();
@@ -322,7 +322,7 @@ export function SwapTab({ fallbackCap }: { fallbackCap: number | null }) {
             <span className="text-[10px] uppercase tracking-[0.14em] text-faint">Route</span>
             {improvementBps > 0 && (
               <span className="font-mono text-[11px] text-mint">
-                +{(improvementBps / 100).toFixed(2)}% vs AMM alone
+                +{(improvementBps / 100).toFixed(2)}% vs curve-only, this quote
               </span>
             )}
           </div>

@@ -18,18 +18,18 @@ export function Hero() {
 
       <Rise>
         <h1 className="mt-7 max-w-4xl text-[42px] font-semibold leading-[1.04] tracking-[-0.02em] text-fg sm:text-[56px] lg:text-[72px]">
-          The order book
+          The order book,
           <br />
-          <span className="shimmer">Arc made possible.</span>
+          <span className="shimmer">made practical on Arc.</span>
         </h1>
       </Rise>
 
       <Rise>
         <p className="mt-7 max-w-xl text-[15px] leading-relaxed text-muted">
-          Every other DEX here is a curve. A real limit order book only works
-          when finality is sub-second and gas costs a cent — which is true on
-          exactly one chain. Orders sweep the book first, then fall through to a
-          rate-adjusted StableSwap for whatever it can&apos;t absorb.
+          An onchain limit order book for stablecoin FX. Makers quote and cancel
+          continuously, which becomes economical with sub-second finality and
+          ~$0.01 gas. Each order sweeps the resting book first, then settles the
+          remainder through a rate-adjusted StableSwap in the same transaction.
         </p>
       </Rise>
 

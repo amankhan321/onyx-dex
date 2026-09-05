@@ -7,33 +7,31 @@ export default function Docs() {
   return (
     <Prose
       title="How it works"
-      lede="Every other DEX on Arc is a Curve fork. Onyx is an order book with a curve underneath it, and the difference is not cosmetic."
+      lede="Onyx is an onchain limit order book for stablecoin FX, with a rate-adjusted StableSwap underneath it. Here is how the two fit together."
     >
-      <Section heading="Why nobody builds order books on-chain">
+      <Section heading="Why order books are hard onchain">
         <p>
           A central limit order book needs makers to quote and pull constantly.
-          On Ethereum, each of those actions costs real money and lands twelve
-          seconds later, so a maker is a sitting duck and the economics never
-          work. That is why AMMs exist — not because they are better, but because
-          they are the only thing that fits.
+          Where each of those actions costs real money and lands twelve seconds
+          later, a maker is exposed for the whole interval and the economics do
+          not work. That constraint is the reason automated market makers became
+          the default design.
         </p>
         <p>
-          Arc has sub-second deterministic finality and flat one-cent gas. The
-          constraint that forced everyone into AMMs is simply gone, and almost
-          nobody has noticed yet.
+          Arc has sub-second deterministic finality and flat one-cent gas, which
+          makes continuous quoting and cancelling economical.
         </p>
       </Section>
 
-      <Section heading="The bug in everyone else&apos;s pool">
+      <Section heading="Pricing a genuine FX pair">
         <p>
-          Every USDC/EURC pool on Arc runs Curve&apos;s StableSwap invariant. That
-          invariant assumes the two coins trade at par — the assumption is baked
-          into the maths.
+          Curve&apos;s StableSwap invariant assumes the two coins trade at par —
+          the assumption is baked into the maths.
         </p>
         <p>
-          EURC is euro-pegged. It trades around 1.08 dollars, not 1.00. Feeding
-          a genuine FX pair into a 1:1 curve concentrates liquidity around a peg
-          that does not exist, and arbitrageurs drain it toward par.
+          EURC is euro-pegged, so it does not trade at 1.00 USDC. Feeding a
+          genuine FX pair into a 1:1 curve concentrates liquidity around a peg
+          that does not hold, and arbitrageurs pull it toward par.
         </p>
         <p>
           Onyx converts EURC into USDC terms through a rate provider{" "}

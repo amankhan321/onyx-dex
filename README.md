@@ -1,31 +1,29 @@
 # Onyx
 
-**The first on-chain central limit order book on Arc.** Hybrid CLOB + rate-adjusted StableSwap AMM for stablecoin FX.
-
-Every other DEX on Arc is a Curve fork. This isn't.
+**An onchain central limit order book on Arc.** Hybrid CLOB + rate-adjusted StableSwap AMM for stablecoin FX.
 
 ---
 
-## Why a CLOB, and why only on Arc
+## Why a CLOB, and why Arc makes it practical
 
-AMMs exist because on-chain order books are impossible on Ethereum — gas is too expensive and blocks are too slow to place, cancel, and match orders at market speed.
+Automated market makers became the default design because onchain order books are impractical where gas is expensive and blocks are slow — makers cannot place, cancel, and requote at market speed.
 
-Arc removes both constraints:
+Arc relaxes both constraints:
 
 - **Sub-second deterministic finality** (Malachite consensus) — a maker can quote and pull without being picked off across a 12-second block.
 - **Flat ~$0.01 gas, denominated in USDC** — placing and cancelling orders costs a rounding error, so real market-making is economic.
 
-Circle is explicitly building Arc for **FX and capital markets**. Institutions doing FX do not want AMM slippage; they want limit orders, price-time priority, and TWAP. Onyx gives them a book, and keeps an AMM underneath as backstop depth.
+Circle is explicitly building Arc for **FX and capital markets**. Institutions doing FX want limit orders, price-time priority, and TWAP rather than AMM slippage. Onyx gives them a book, and keeps an AMM underneath as backstop depth.
 
-The order book is a primitive that is **only viable on Arc**. That's the whole thesis.
+Sub-second finality and one-cent gas are what make the order book practical here. That's the whole thesis.
 
 ---
 
-## The bug in everyone else's pool
+## Pricing a genuine FX pair
 
-Every Arc DEX runs a Curve 1:1 StableSwap invariant on **USDC/EURC**.
+A Curve 1:1 StableSwap invariant on **USDC/EURC** assumes the coins trade at par.
 
-EURC is euro-pegged. It trades around **1.08-1.16 USD**, not 1.00. The StableSwap invariant *assumes the coins trade at par* — that assumption is baked into the maths. Feed it a genuine FX pair and the curve concentrates liquidity around a peg that does not exist, and arbitrageurs drain it toward par.
+EURC is euro-pegged, so it does not trade at 1.00 USDC. The StableSwap invariant *assumes the coins trade at par* — that assumption is baked into the maths. Feed it a genuine FX pair and the curve concentrates liquidity around a peg that does not hold, and arbitrageurs pull it toward par.
 
 Onyx uses a **rate-adjusted** invariant: coin1 is converted into coin0 terms through an immutable rate provider *before* it ever touches the curve, so the 1:1 assumption is actually true. There is a test that asserts we do not quote near 1:1 on a 1.08 pair (`test_NaivePegWouldBeDrained`).
 

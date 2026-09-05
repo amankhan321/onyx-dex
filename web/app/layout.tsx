@@ -8,12 +8,12 @@ import { Footer } from "@/components/Footer";
 import { TickerSlot } from "@/components/TickerSlot";
 
 export const metadata: Metadata = {
-  title: "Onyx — an on-chain order book, built on Arc",
+  title: "Onyx — an onchain order book, built on Arc",
   description:
-    "Hybrid CLOB + rate-adjusted StableSwap for stablecoin FX. Limit orders, price-time priority and TWAP — viable because Arc has sub-second finality and one-cent gas.",
+    "Hybrid CLOB + rate-adjusted StableSwap for stablecoin FX. Limit orders, price-time priority and TWAP, made practical by Arc's sub-second finality and one-cent gas.",
   openGraph: {
-    title: "Onyx — an on-chain order book, built on Arc",
-    description: "Onyx — an on-chain order book. Hybrid CLOB + rate-adjusted StableSwap for USDC/EURC, built on Arc.",
+    title: "Onyx — an onchain order book, built on Arc",
+    description: "Onyx — an onchain order book. Hybrid CLOB + rate-adjusted StableSwap for USDC/EURC, built on Arc.",
     type: "website",
   },
 };

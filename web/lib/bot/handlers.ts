@@ -35,12 +35,12 @@ import { quoteSwap, refusalMessage, renderPrice, renderQuote, staleGate } from "
 const MINIAPP_URL = process.env.MINIAPP_URL ?? "https://onyx-dex.vercel.app/miniapp";
 
 const openButton: InlineButton[][] = [
-  [{ text: "📈 Open Onyx", web_app: { url: MINIAPP_URL } }],
+  [{ text: "Open Onyx", web_app: { url: MINIAPP_URL } }],
   [{ text: "🤝 Referral", callback_data: "referral" }, { text: "❓ Help", callback_data: "help" }],
 ];
 
 const WELCOME =
-  "*Onyx* — the on-chain order book on Arc.\n\n" +
+  "*Onyx* — an onchain order book on Arc.\n\n" +
   "*This is self-custody.*\n" +
   "Your wallet is created and unlocked on your own device. Your password and " +
   "private key never reach our servers — we hold only an encrypted file we cannot open.\n\n" +
