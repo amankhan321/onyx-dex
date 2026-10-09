@@ -1,0 +1,115 @@
+name: Deploy contracts
+
+# Manual only. Deploys the Onyx contract stack with a key that lives in a repo
+# secret, so it goes GitHub -> chain without ever passing through a chat, a
+# laptop or a log.
+#
+# SAFE BY DEFAULT: `broadcast` is false unless you tick it. A dry run simulates
+# the whole deploy against the live chain and prints the addresses it WOULD use,
+# so the real run holds no surprises.
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Network"
+        required: true
+        type: choice
+        options: [mainnet, testnet]
+        default: mainnet
+      broadcast:
+        description: "Broadcast for real (leave unticked for a dry run)"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-contracts
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Gives you a place to require manual approval before mainnet runs:
+    # Settings -> Environments -> mainnet -> Required reviewers.
+    environment: ${{ inputs.network }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      # Never deploy code whose tests are red.
+      - name: Contract tests
+        run: forge test
+
+      - name: Resolve network
+        id: net
+        run: |
+          set -eu
+          if [ "${{ inputs.network }}" = "mainnet" ]; then
+            echo "rpc=https://rpc.mainnet.arc.io" >> "$GITHUB_OUTPUT"
+            echo "chain=5042" >> "$GITHUB_OUTPUT"
+          else
+            echo "rpc=https://rpc.testnet.arc.io" >> "$GITHUB_OUTPUT"
+            echo "chain=5042002" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The opening rate is fetched, not typed. A hand-entered rate is how a
+      # decimal slip or a stale number becomes a free arbitrage against the
+      # first LP. The script still range-checks whatever arrives.
+      - name: Fetch opening EUR/USD
+        id: rate
+        run: |
+          set -eu
+          r=""
+          for url in \
+            "https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD" \
+            "https://api.frankfurter.app/latest?base=EUR&symbols=USD"; do
+            r=$(curl -sf "$url" | jq -r '.rates.USD // empty') && [ -n "$r" ] && break || true
+          done
+          [ -n "$r" ] || { echo "no FX source reachable" >&2; exit 1; }
+          wad=$(python3 -c "from decimal import Decimal; print(int(Decimal('$r') * 10**18))")
+          echo "EUR/USD $r  ->  $wad"
+          echo "wad=$wad" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy
+        env:
+          # Secrets: never echoed, never on a command line.
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_KEY }}
+          # Public addresses: repository VARIABLES, not secrets.
+          OWNER: ${{ vars.ORACLE_OWNER_SAFE }}
+          UPDATER: ${{ vars.RATE_UPDATER_ADDRESS }}
+          EURUSD_RATE: ${{ steps.rate.outputs.wad }}
+        run: |
+          set -eu   # not -x: tracing would print the key
+          [ -n "${PRIVATE_KEY}" ] || { echo "DEPLOYER_KEY secret is not set" >&2; exit 1; }
+          [ -n "${OWNER}" ]       || { echo "ORACLE_OWNER_SAFE variable is not set" >&2; exit 1; }
+          [ -n "${UPDATER}" ]     || { echo "RATE_UPDATER_ADDRESS variable is not set" >&2; exit 1; }
+
+          # Confirm the RPC really is the chain we think it is before anything else.
+          got=$(cast chain-id --rpc-url "${{ steps.net.outputs.rpc }}")
+          [ "$got" = "${{ steps.net.outputs.chain }}" ] || {
+            echo "RPC reports chain $got, expected ${{ steps.net.outputs.chain }}" >&2; exit 1; }
+
+          flags=""
+          if [ "${{ inputs.broadcast }}" = "true" ]; then
+            flags="--broadcast --slow"
+            echo "::warning::BROADCASTING to ${{ inputs.network }}"
+          else
+            echo "Dry run — nothing will be sent."
+          fi
+
+          forge script script/Deploy.s.sol:Deploy \
+            --rpc-url "${{ steps.net.outputs.rpc }}" \
+            $flags -vv 2>&1 | tee deploy.log
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Onyx deploy — ${{ inputs.network }} (${{ inputs.broadcast && 'BROADCAST' || 'dry run' }})"
+            echo '```'
+            grep -E "network|deployer|owner|updater|EURC|rate|RateProvider|StableSwap|OrderBook|Router|Quoter|TwapExecutor" deploy.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
