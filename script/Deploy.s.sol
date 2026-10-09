@@ -10,27 +10,37 @@ import {Quoter} from "../src/Quoter.sol";
 import {TwapExecutor} from "../src/TwapExecutor.sol";
 import {GuardedRateProvider} from "../src/RateProvider.sol";
 
-/// @notice Deploys the full ArcBook stack to Arc Testnet (chain 5042002).
+/// @notice Deploys the full Onyx stack to Arc Mainnet (5042) or Arc Testnet (5042002).
 ///
-///   forge script script/Deploy.s.sol:Deploy \
-///     --rpc-url https://rpc.testnet.arc.network \
-///     --private-key $PRIVATE_KEY \
-///     --broadcast -vvv
+///   PRIVATE_KEY=…  OWNER=<Safe>  UPDATER=<keeper EOA>  EURUSD_RATE=<1e18 rate> \
+///   forge script script/Deploy.s.sol:Deploy --rpc-url $ARC_RPC_URL --broadcast -vvv
 ///
-/// @dev This script makes no calls into the token contracts. Decimals are constants,
-///      not read on-chain, so the script simulates cleanly even without an RPC. Arc's
-///      USDC is an ordinary upgradeable ERC-20 proxy — reading its metadata would work
-///      fine — but a constructor with zero external dependencies is one less thing to
-///      debug at deploy time.
+/// Mainnet refuses to run unless every one of these holds — each guards a mistake that
+/// is cheap to make and expensive to undo once real liquidity is in the pool:
+///
+///   - token addresses come from the chain id, never from a default. The testnet EURC
+///     address on mainnet is a different contract entirely.
+///   - EURUSD_RATE is REQUIRED and must sit inside a sane band. A stale default opening
+///     rate is a free arbitrage against the first liquidity provider.
+///   - OWNER must be a contract (a Safe). It can rotate the rate updater after a key
+///     leak — the incident response that does not exist if updater is immutable.
+///   - UPDATER, OWNER and the deployer must be three different addresses. The deployer
+///     key's job ends when this script does; it must not be the one pricing the pool.
+///
+/// @dev No calls into the token contracts. Decimals are constants (Arc's USDC and EURC
+///      ERC-20 interfaces are both 6-decimal), so the script has no external dependency
+///      that can fail half-way through a broadcast.
 contract Deploy is Script {
-    // Arc Testnet canonical tokens.
-    address constant ARC_USDC = 0x3600000000000000000000000000000000000000;
-    address constant ARC_EURC = 0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a;
+    uint256 constant ARC_MAINNET = 5042;
+    uint256 constant ARC_TESTNET = 5042002;
 
-    // Arc docs: the native USDC *gas* token uses 18 decimals, but the USDC *ERC-20
-    // interface* uses 6. We only ever touch the ERC-20 interface.
-    uint8 constant USDC_DECIMALS = 6;
-    uint8 constant EURC_DECIMALS = 6;
+    // Both from docs.arc.io/arc/references/contract-addresses. USDC is the same on both;
+    // EURC is NOT.
+    address constant USDC = 0x3600000000000000000000000000000000000000;
+    address constant EURC_MAINNET = 0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1;
+    address constant EURC_TESTNET = 0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a;
+
+    uint8 constant DECIMALS = 6;
 
     // A = 200 (amp is A * 100). High amplification is right for a tight FX pair.
     uint256 constant AMP = 20_000;
@@ -38,34 +48,81 @@ contract Deploy is Script {
     uint256 constant POOL_FEE_BPS = 4;
     uint256 constant TAKER_FEE_BPS = 2;
 
-    function run() external {
-        address usdc = vm.envOr("USDC", ARC_USDC);
-        address eurc = vm.envOr("EURC", ARC_EURC);
-        uint8 dec0 = uint8(vm.envOr("USDC_DECIMALS", uint256(USDC_DECIMALS)));
-        uint8 dec1 = uint8(vm.envOr("EURC_DECIMALS", uint256(EURC_DECIMALS)));
-        // EUR/USD, 1e18. Update via GuardedRateProvider.setRate from your keeper.
-        uint256 initialRate = vm.envOr("EURUSD_RATE", uint256(1.08e18));
+    // Plausible EUR/USD. Anything outside is a typo or a decimal slip, not a market.
+    uint256 constant RATE_MIN = 0.8e18;
+    uint256 constant RATE_MAX = 1.6e18;
 
-        uint256 pk = vm.envUint("PRIVATE_KEY");
+    error UnsupportedChain(uint256 chainId);
+    error RateRequired();
+    error RateOutOfBand(uint256 rate);
+    error OwnerMustBeContract(address owner);
+    error RolesMustDiffer();
+
+    struct Deployed {
+        address rateProvider;
+        address pool;
+        address book;
+        address router;
+        address quoter;
+        address twap;
+    }
+
+    struct Config {
+        uint256 pk;
+        address owner;
+        address updater;
+        uint256 initialRate;
+    }
+
+    /// @notice Entry point for `forge script`: reads the environment, then deploys.
+    function run() external returns (Deployed memory) {
+        return deploy(
+            Config({
+                pk: vm.envUint("PRIVATE_KEY"),
+                owner: vm.envAddress("OWNER"),
+                updater: vm.envAddress("UPDATER"),
+                // No default on either network: the right opening rate is whatever the
+                // market is on deploy day; the keeper moves it only 1% per 5 min after.
+                initialRate: vm.envOr("EURUSD_RATE", uint256(0))
+            })
+        );
+    }
+
+    /// @notice Validates every guard, then deploys. Split from `run` so the guards can
+    ///         be tested with explicit values instead of mutating the process env.
+    function deploy(Config memory c) public returns (Deployed memory d) {
+        uint256 chainId = block.chainid;
+        bool mainnet = chainId == ARC_MAINNET;
+        if (!mainnet && chainId != ARC_TESTNET) revert UnsupportedChain(chainId);
+
+        address eurc = mainnet ? EURC_MAINNET : EURC_TESTNET;
+
+        uint256 pk = c.pk;
         address deployer = vm.addr(pk);
+        address owner = c.owner;
+        address updater = c.updater;
+        uint256 initialRate = c.initialRate;
+        if (initialRate == 0) revert RateRequired();
+        if (initialRate < RATE_MIN || initialRate > RATE_MAX) revert RateOutOfBand(initialRate);
 
+        if (owner == updater || owner == deployer || updater == deployer) revert RolesMustDiffer();
+        if (mainnet && owner.code.length == 0) revert OwnerMustBeContract(owner);
+
+        console2.log("network      ", mainnet ? "Arc Mainnet" : "Arc Testnet");
         console2.log("deployer     ", deployer);
-        console2.log("USDC         ", usdc);
+        console2.log("owner (Safe) ", owner);
+        console2.log("updater      ", updater);
+        console2.log("USDC         ", USDC);
         console2.log("EURC         ", eurc);
         console2.log("EUR/USD rate ", initialRate);
         console2.log("");
 
         vm.startBroadcast(pk);
 
-        // The deployer is the rate updater. This is the ONLY privileged role anywhere in
-        // the system, and it is fenced by a deviation cap, an update cooldown, and a
-        // staleness window that halts the AMM rather than pricing off a dead feed.
-        GuardedRateProvider rp = new GuardedRateProvider(deployer, initialRate);
-
+        GuardedRateProvider rp = new GuardedRateProvider(owner, updater, initialRate);
         StableSwap pool = new StableSwap(
-            usdc, eurc, address(rp), dec0, dec1, AMP, POOL_FEE_BPS, "ArcBook USDC/EURC LP", "ab-USDC-EURC"
+            USDC, eurc, address(rp), DECIMALS, DECIMALS, AMP, POOL_FEE_BPS, "Onyx USDC/EURC LP", "onyx-USDC-EURC"
         );
-
         OrderBook book = new OrderBook(address(pool), TAKER_FEE_BPS);
         Router router = new Router(address(pool), address(book));
         Quoter quoter = new Quoter(address(pool), address(book));
@@ -73,14 +130,14 @@ contract Deploy is Script {
 
         vm.stopBroadcast();
 
-        console2.log("=== ArcBook deployed ===");
-        console2.log("RateProvider ", address(rp));
-        console2.log("StableSwap   ", address(pool));
-        console2.log("OrderBook    ", address(book));
-        console2.log("Router       ", address(router));
-        console2.log("Quoter       ", address(quoter));
-        console2.log("TwapExecutor ", address(twap));
-        console2.log("");
-        console2.log("Explorer: https://testnet.arcscan.app/address/%s", address(router));
+        d = Deployed(address(rp), address(pool), address(book), address(router), address(quoter), address(twap));
+
+        console2.log("=== Onyx deployed ===");
+        console2.log("RateProvider ", d.rateProvider);
+        console2.log("StableSwap   ", d.pool);
+        console2.log("OrderBook    ", d.book);
+        console2.log("Router       ", d.router);
+        console2.log("Quoter       ", d.quoter);
+        console2.log("TwapExecutor ", d.twap);
     }
 }
