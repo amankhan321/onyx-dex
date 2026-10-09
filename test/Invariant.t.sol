@@ -138,7 +138,7 @@ contract ArcBookInvariants is Test {
     function setUp() public {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         eurc = new MockERC20("Euro Coin", "EURC", 6);
-        rp = new GuardedRateProvider(address(this), 1.08e18);
+        rp = new GuardedRateProvider(address(this), address(this), 1.08e18);
 
         pool = new StableSwap(address(usdc), address(eurc), address(rp), 6, 6, 20_000, 4, "ArcBook LP", "ABLP");
         book = new OrderBook(address(pool), 2);
